@@ -12,14 +12,21 @@ const pathToDBPass = 'projects/199194440168/secrets/DB_PASS/versions/latest';
 const pathToDBHost = 'projects/199194440168/secrets/DB_HOST/versions/latest';
 const pathToDBPort = 'projects/199194440168/secrets/DB_PORT/versions/latest';
 
+const pathToCa = 'projects/199194440168/secrets/DB_CA/versions/latest';
+const pathToKey = 'projects/199194440168/secrets/DB_KEY/versions/latest';
+const pathToCert = 'projects/199194440168/secrets/DB_CERT/versions/latest';
+
 const client = new SecretManagerServiceClient();
 
 exports.main = async (req, res) => {
-	const [dbUser, dbPass, dbHost, dbPort] = await Promise.all([
+	const [dbUser, dbPass, dbHost, dbPort, ca, key, cert] = await Promise.all([
 		accessSecretVersion(pathToDBUser),
 		accessSecretVersion(pathToDBPass),
 		accessSecretVersion(pathToDBHost),
 		accessSecretVersion(pathToDBPort),
+		accessSecretVersion(pathToCa),
+		accessSecretVersion(pathToKey),
+		accessSecretVersion(pathToCert),
 	]);
 
 	const connection = mysql.createConnection({
@@ -27,6 +34,11 @@ exports.main = async (req, res) => {
 		user: dbUser,
 		password: dbPass,
 		port: dbPort,
+		ssl: {
+			ca: ca,
+			key: key,
+			cert: cert,
+		},
 	});
 
 	connection.connect((error) => {
