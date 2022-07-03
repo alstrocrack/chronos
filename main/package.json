@@ -10,6 +10,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "axios": "^0.27.2"
+    "@google-cloud/secret-manager": "^4.0.0",
+    "axios": "^0.27.2",
+    "mysql": "^2.18.1"
   }
 }
