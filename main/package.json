@@ -12,6 +12,7 @@
   "dependencies": {
     "@google-cloud/secret-manager": "^4.0.0",
     "axios": "^0.27.2",
+    "crypto": "^1.0.1",
     "mysql": "^2.18.1"
   }
 }

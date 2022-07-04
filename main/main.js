@@ -6,6 +6,7 @@
  */
 const axios = require('axios');
 const mysql = require('mysql');
+const crypto = require('crypto');
 const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
 const pathToDBUser = 'projects/199194440168/secrets/DB_USER/versions/latest';
 const pathToDBPass = 'projects/199194440168/secrets/DB_PASS/versions/latest';
@@ -17,11 +18,12 @@ const pathToKey = 'projects/199194440168/secrets/DB_KEY/versions/latest';
 const pathToCert = 'projects/199194440168/secrets/DB_CERT/versions/latest';
 
 const pathTochannelAccessToken = 'projects/199194440168/secrets/CHANNEL_ACCESS_TOKEN/versions/latest';
+const pathToChannelSecret = 'projects/199194440168/secrets/CHANNEL_SECRET/versions/latest';
 
 const client = new SecretManagerServiceClient();
 
 exports.main = async (req, res) => {
-	const [dbUser, dbPass, dbHost, dbPort, ca, key, cert, channelAccessToken] = await Promise.all([
+	const [dbUser, dbPass, dbHost, dbPort, ca, key, cert, channelAccessToken, channelSecret] = await Promise.all([
 		accessSecretVersion(pathToDBUser),
 		accessSecretVersion(pathToDBPass),
 		accessSecretVersion(pathToDBHost),
@@ -30,7 +32,20 @@ exports.main = async (req, res) => {
 		accessSecretVersion(pathToKey),
 		accessSecretVersion(pathToCert),
 		accessSecretVersion(pathTochannelAccessToken),
+		accessSecretVersion(pathToChannelSecret),
 	]);
+
+	const body = req.body;
+	const digest = crypto
+		.createHmac('SHA256', channelSecret)
+		.update(Buffer.from(JSON.stringify(body)))
+		.digest('base64');
+	const signature = req.headers['x-line-signature'];
+	if (digest !== signature) {
+		res.status(403);
+		res.send('This request is invalid');
+		return;
+	}
 
 	const connection = mysql.createConnection({
 		host: dbHost,
