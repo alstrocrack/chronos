@@ -11,6 +11,7 @@ const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
 const pathToDBUser = 'projects/199194440168/secrets/DB_USER/versions/latest';
 const pathToDBPass = 'projects/199194440168/secrets/DB_PASS/versions/latest';
 const pathToDBHost = 'projects/199194440168/secrets/DB_HOST/versions/latest';
+const pathToDBName = 'projects/199194440168/secrets/DB_NAME/versions/latest';
 const pathToDBPort = 'projects/199194440168/secrets/DB_PORT/versions/latest';
 
 const pathToCa = 'projects/199194440168/secrets/DB_CA/versions/latest';
@@ -22,10 +23,16 @@ const pathToChannelSecret = 'projects/199194440168/secrets/CHANNEL_SECRET/versio
 
 const client = new SecretManagerServiceClient();
 
+const cache = {
+	status: 0,
+	senderId: null,
+};
+
 exports.main = async (req, res) => {
-	const [dbUser, dbPass, dbHost, dbPort, ca, key, cert, channelAccessToken, channelSecret] = await Promise.all([
+	const [dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, channelAccessToken, channelSecret] = await Promise.all([
 		accessSecretVersion(pathToDBUser),
 		accessSecretVersion(pathToDBPass),
+		accessSecretVersion(pathToDBName),
 		accessSecretVersion(pathToDBHost),
 		accessSecretVersion(pathToDBPort),
 		accessSecretVersion(pathToCa),
@@ -47,10 +54,82 @@ exports.main = async (req, res) => {
 		return;
 	}
 
+	// const connection = mysql.createConnection({
+	// 	host: dbHost,
+	// 	user: dbUser,
+	// 	password: dbPass,
+	// 	port: dbPort,
+	// 	ssl: {
+	// 		ca: ca,
+	// 		key: key,
+	// 		cert: cert,
+	// 	},
+	// });
+
+	// connection.connect((error) => {
+	// 	if (error) {
+	// 		console.log(`Connection Error: ${error}`);
+	// 	}
+	// });
+	// connection.query(`SHOW DATABASES`, (err, results) => {
+	// 	err ? console.log(err) : console.log(JSON.stringify({ results }));
+	// });
+
+	const requestBody = req.body.events[0];
+	const senderId = requestBody.source.userId;
+	const replyToken = requestBody.replyToken;
+	const requestMessage = requestBody.message.text;
+
+	if (cache.event === null || cache.status === 0) {
+		switch (requestMessage) {
+			case '誕生日の追加':
+				cache.status = 1;
+				cache.senderId = senderId;
+				reply(channelAccessToken, replyToken, `誕生日を追加する人の名前を10文字以内で入力しください&cache: ${cache}`);
+				break;
+			case '誕生日の一覧':
+				deliverBirthdaysList(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken);
+				break;
+			case '誕生日の削除':
+				cache.status = 2;
+				cache.senderId = senderId;
+				reply(channelAccessToken, replyToken, `誕生日を削除する人の名前を10文字以内で入力しください&cache: ${cache}`);
+				break;
+			case '誕生日の編集':
+				cache.status = 3;
+				cache.senderId = senderId;
+				reply(channelAccessToken, replyToken, `誕生日を編集する人の名前を10文字以内で入力しください&cache: ${cache}`);
+				break;
+			case 'キャッシュ':
+				cache.status = 0;
+				cache.senderId = null;
+				reply(channelAccessToken, replyToken, `cache: ${cache}`);
+			default:
+				reply(channelAccessToken, replyToken, `リッチメニューから選択してください&cache: ${JSON.stringify(cache)}`);
+				break;
+		}
+	} else {
+		if (requestMessage == 'キャンセル') {
+			cache.status = 0;
+			cache.senderId = null;
+			reply(channelAccessToken, replyToken, '操作をキャンセルしました');
+			return;
+		}
+
+		reply(channelAccessToken, replyToken, 'received');
+		return;
+	}
+
+	res.status(200);
+	res.send(`OK \nreplyToken: ${replyToken}\nsenderId: ${senderId}\nrequestMessage: ${requestMessage}\ncache: ${cache}`);
+};
+
+async function deliverBirthdaysList(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken) {
 	const connection = mysql.createConnection({
 		host: dbHost,
 		user: dbUser,
 		password: dbPass,
+		database: dbName,
 		port: dbPort,
 		ssl: {
 			ca: ca,
@@ -64,19 +143,28 @@ exports.main = async (req, res) => {
 			console.log(`Connection Error: ${error}`);
 		}
 	});
-	connection.query(`SHOW DATABASES`, (err, results) => {
-		err ? console.log(err) : console.log(JSON.stringify({ results }));
+
+	const results = await new Promise((resolve, reject) => {
+		connection.query(
+			`SELECT name, year, concat(month,"/",date) AS day FROM chronos_birthdays_list WHERE sender_id = ?`,
+			[senderId],
+			(error, result, field) => {
+				error ? reject(error) : resolve(result);
+			},
+		);
 	});
 
-	const requestBody = req.body.events[0];
-	const senderId = requestBody.source.userId;
-	const replyToken = requestBody.replyToken;
-	const requestMessage = requestBody.message.text;
-	reply(channelAccessToken, replyToken, 'request was received');
+	let list = '';
+	for (let i = 0; i < results.length; i++) {
+		if (results[i].year == null) {
+			list += `\n${results[i].name}: ${results[i].day}`;
+		} else {
+			list += `\n${results[i].name}: ${results[i].year}/${results[i].day}`;
+		}
+	}
 
-	res.status(200);
-	res.send(`OK \nreplyToken: ${replyToken}\nsenderId: ${senderId}\nrequestMessage: ${requestMessage}`);
-};
+	reply(channelAccessToken, replyToken, `誕生日の一覧: ${list}`);
+}
 
 async function accessSecretVersion(secretKey) {
 	const [version] = await client.accessSecretVersion({
