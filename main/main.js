@@ -80,7 +80,21 @@ exports.main = async (req, res) => {
 	const requestBody = req.body.events[0];
 	const senderId = requestBody.source.userId;
 	const replyToken = requestBody.replyToken;
+	const requestType = requestBody.type;
 	const requestMessage = requestBody.message.text;
+
+	if (requestType === 'follow' || requestType === 'unfollow') {
+		switch (requestType) {
+			case 'follow':
+				registerUser();
+				break;
+			case 'unfollow':
+				unregisterUser();
+				break;
+		}
+		res.status(200).send(`OK \nreplyToken: ${replyToken}\nsenderId: ${senderId}\nrequestMessage: ${requestMessage}\ncache: ${cache}`);
+		return;
+	}
 
 	if (cache.get(senderId) === undefined) {
 		switch (requestMessage) {
@@ -142,8 +156,7 @@ exports.main = async (req, res) => {
 		}
 	}
 
-	res.status(200);
-	res.send(`OK \nreplyToken: ${replyToken}\nsenderId: ${senderId}\nrequestMessage: ${requestMessage}\ncache: ${cache}`);
+	res.status(200).send(`OK \nreplyToken: ${replyToken}\nsenderId: ${senderId}\nrequestMessage: ${requestMessage}\ncache: ${cache}`);
 };
 
 async function deliverBirthdaysList(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken) {
