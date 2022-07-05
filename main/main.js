@@ -7,6 +7,7 @@
 const axios = require('axios');
 const mysql = require('mysql');
 const crypto = require('crypto');
+const NodeCache = require('node-cache');
 const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
 const pathToDBUser = 'projects/199194440168/secrets/DB_USER/versions/latest';
 const pathToDBPass = 'projects/199194440168/secrets/DB_PASS/versions/latest';
@@ -22,10 +23,11 @@ const pathTochannelAccessToken = 'projects/199194440168/secrets/CHANNEL_ACCESS_T
 const pathToChannelSecret = 'projects/199194440168/secrets/CHANNEL_SECRET/versions/latest';
 
 const client = new SecretManagerServiceClient();
+const cache = new NodeCache({ stdTTL: 100, checkperiod: 120 });
 
-const cache = {
+const cacheObject = {
 	status: 0,
-	senderId: null,
+	name: null,
 };
 
 exports.main = async (req, res) => {
@@ -80,44 +82,64 @@ exports.main = async (req, res) => {
 	const replyToken = requestBody.replyToken;
 	const requestMessage = requestBody.message.text;
 
-	if (cache.event === null || cache.status === 0) {
+	if (cache.get(senderId) === undefined) {
 		switch (requestMessage) {
 			case '誕生日の追加':
-				cache.status = 1;
-				cache.senderId = senderId;
-				reply(channelAccessToken, replyToken, `誕生日を追加する人の名前を10文字以内で入力しください&cache: ${cache}`);
+				cacheObject.status = 1;
+				const success = cache.set(senderId, cacheObject);
+				if (success) {
+					console.log(`cache: ${cache.get(senderId).status}`);
+					reply(channelAccessToken, replyToken, `誕生日を追加する人の名前を10文字以内で入力しください&cache: ${JSON.stringify(cache.get(senderId))}`);
+				} else {
+					reply(channelAccessToken, replyToken, `もう一度試してください: ${cache}`);
+				}
 				break;
 			case '誕生日の一覧':
 				deliverBirthdaysList(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken);
 				break;
 			case '誕生日の削除':
-				cache.status = 2;
-				cache.senderId = senderId;
+				cache.status = 3;
 				reply(channelAccessToken, replyToken, `誕生日を削除する人の名前を10文字以内で入力しください&cache: ${cache}`);
 				break;
-			case '誕生日の編集':
-				cache.status = 3;
-				cache.senderId = senderId;
-				reply(channelAccessToken, replyToken, `誕生日を編集する人の名前を10文字以内で入力しください&cache: ${cache}`);
+			case 'キャンセル':
+				const result = cache.del(senderId);
+				if (result) {
+					reply(channelAccessToken, replyToken, `キャンセルしました&cache: ${cache}`);
+				} else {
+					reply(channelAccessToken, replyToken, `キャッシュがありません: ${cache}`);
+				}
 				break;
-			case 'キャッシュ':
-				cache.status = 0;
-				cache.senderId = null;
-				reply(channelAccessToken, replyToken, `cache: ${cache}`);
 			default:
 				reply(channelAccessToken, replyToken, `リッチメニューから選択してください&cache: ${JSON.stringify(cache)}`);
 				break;
 		}
 	} else {
 		if (requestMessage == 'キャンセル') {
-			cache.status = 0;
-			cache.senderId = null;
-			reply(channelAccessToken, replyToken, '操作をキャンセルしました');
-			return;
+			const result = cache.del(senderId);
+			if (result) {
+				reply(channelAccessToken, replyToken, `他のメニューを選択してください&cache: ${cache}`);
+			} else {
+				reply(channelAccessToken, replyToken, `キャッシュがありません: ${cache}`);
+			}
 		}
 
-		reply(channelAccessToken, replyToken, 'received');
-		return;
+		switch (cache.get(senderId).status) {
+			case 1:
+				cacheObject.status = 2;
+				cacheObject.name = requestMessage;
+				const result = cache.set(senderId, cacheObject);
+				if (result) {
+					reply(channelAccessToken, replyToken, `生年月日を入力してください: ${cache.get(senderId).status}`);
+				} else {
+					reply(channelAccessToken, replyToken, `再度入力してください: ${cache.get(senderId).status}`);
+				}
+				break;
+			case 2:
+				addBirthday();
+			default:
+				reply(channelAccessToken, replyToken, 'received');
+				break;
+		}
 	}
 
 	res.status(200);
