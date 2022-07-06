@@ -273,7 +273,7 @@ function unregisterUser(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, s
 }
 
 async function addBirthday(pool, senderId, channelAccessToken, replyToken, name, year, month, date) {
-	const results = await new Promise((resolve, reject) => {
+	await new Promise((resolve, reject) => {
 		pool.getConnection((error, connection) => {
 			if (error) {
 				throw new Error(error);
