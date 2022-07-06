@@ -56,6 +56,19 @@ exports.main = async (req, res) => {
 		return;
 	}
 
+	const pool = mysql.createPool({
+		host: dbHost,
+		user: dbUser,
+		password: dbPass,
+		database: dbName,
+		port: dbPort,
+		ssl: {
+			ca: ca,
+			key: key,
+			cert: cert,
+		},
+	});
+
 	const requestBody = req.body.events[0];
 	const senderId = requestBody.source.userId;
 	const replyToken = requestBody.replyToken;
@@ -136,7 +149,7 @@ exports.main = async (req, res) => {
 				const splittedDate = requestMessage.split('/');
 				const [year, month, date] =
 					splittedDate.length === 3 ? [splittedDate[0], splittedDate[1], splittedDate[2]] : [null, splittedDate[0], splittedDate[1]];
-				addBirthday(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken, name, year, month, date);
+				addBirthday(pool, senderId, channelAccessToken, replyToken, name, year, month, date);
 				cache.del(senderId);
 				break;
 			// 誕生日の削除
@@ -259,42 +272,26 @@ function unregisterUser(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, s
 	connection.end();
 }
 
-async function addBirthday(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken, name, year, month, date) {
-	const connection = mysql.createConnection({
-		host: dbHost,
-		user: dbUser,
-		password: dbPass,
-		database: dbName,
-		port: dbPort,
-		ssl: {
-			ca: ca,
-			key: key,
-			cert: cert,
-		},
-	});
-
-	connection.connect((error) => {
-		if (error) {
-			console.log(`Connection Error: ${error}`);
-		}
-	});
-
+async function addBirthday(pool, senderId, channelAccessToken, replyToken, name, year, month, date) {
 	const results = await new Promise((resolve, reject) => {
-		connection.query(
-			`INSERT INTO chronos_birthdays_list (name, year, month, date, sender_id, created_at) VALUES (?, ?, ?, ?, ?, Now())`,
-			[name, year, month, date, senderId],
-			(error, result, field) => {
-				if (error) {
-					reject(error);
-					throw new Error('cannot insert.');
-				}
-				resolve(result);
-			},
-		);
+		pool.getConnection((error, connection) => {
+			if (error) {
+				throw new Error(error);
+			}
+			connection.query(
+				`INSERT INTO chronos_birthdays_list (name, year, month, date, sender_id, created_at) VALUES (?, ?, ?, ?, ?, Now())`,
+				[name, year, month, date, senderId],
+				(error, result, field) => {
+					if (error) {
+						reject(error);
+						throw new Error('cannot insert.');
+					}
+					connection.release();
+					resolve(result);
+				},
+			);
+		});
 	});
-
-	connection.end();
-
 	const message = year === null ? `${name}さんを${month}/${date}で登録しました` : `${name}さんを${year}/${month}/${date}で登録しました`;
 	reply(channelAccessToken, replyToken, message);
 }
