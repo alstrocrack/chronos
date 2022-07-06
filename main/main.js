@@ -77,10 +77,10 @@ exports.main = async (req, res) => {
 	if (requestType === 'follow' || requestType === 'unfollow') {
 		switch (requestType) {
 			case 'follow':
-				registerUser(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken);
+				registerUser(pool, senderId, channelAccessToken, replyToken);
 				break;
 			case 'unfollow':
-				unregisterUser(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId);
+				unregisterUser(pool, senderId);
 				break;
 		}
 		res.status(200).send('OK');
@@ -167,26 +167,7 @@ exports.main = async (req, res) => {
 	res.status(200).send(`OK \nreplyToken: ${replyToken}\nsenderId: ${senderId}\nrequestMessage: ${requestMessage}\ncache: ${cache}`);
 };
 
-async function registerUser(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken) {
-	const connection = mysql.createConnection({
-		host: dbHost,
-		user: dbUser,
-		password: dbPass,
-		database: dbName,
-		port: dbPort,
-		ssl: {
-			ca: ca,
-			key: key,
-			cert: cert,
-		},
-	});
-
-	connection.connect((error) => {
-		if (error) {
-			console.log(`Connection Error: ${error}`);
-		}
-	});
-
+async function registerUser(pool, senderId, channelAccessToken, replyToken) {
 	await axios({
 		method: 'get',
 		url: `https://api.line.me/v2/bot/profile/${senderId}`,
@@ -199,15 +180,21 @@ async function registerUser(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cer
 			return response.data.displayName;
 		})
 		.then((name) => {
-			connection.query(
-				`INSERT INTO chronos_users (sender_id, sender_name, created_at) VALUES (?, ?, Now())`,
-				[senderId, name],
-				(error, result, field) => {
-					if (error) {
-						throw new Error(`cannot insert: ${error}`);
-					}
-				},
-			);
+			pool.getConnection((error, connection) => {
+				if (error) {
+					throw new Error(error);
+				}
+				connection.query(
+					`INSERT INTO chronos_users (sender_id, sender_name, created_at) VALUES (?, ?, Now())`,
+					[senderId, name],
+					(error, result, field) => {
+						connection.release();
+						if (error) {
+							throw new Error(`cannot insert: ${error}`);
+						}
+					},
+				);
+			});
 			return name;
 		})
 		.then((name) => {
@@ -215,61 +202,43 @@ async function registerUser(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cer
 		})
 		.catch((error) => {
 			console.log(error);
-		})
-		.finally(() => {
-			connection.end();
 		});
 }
 
-function unregisterUser(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId) {
-	const connection = mysql.createConnection({
-		host: dbHost,
-		user: dbUser,
-		password: dbPass,
-		database: dbName,
-		port: dbPort,
-		ssl: {
-			ca: ca,
-			key: key,
-			cert: cert,
-		},
-	});
-
-	connection.connect((error) => {
+function unregisterUser(pool, senderId) {
+	pool.getConnection((error, connection) => {
 		if (error) {
-			console.log(`Connection Error: ${error}`);
+			throw new Error(error);
 		}
+		connection.beginTransaction((error) => {
+			if (error) {
+				throw new Error('transaction cannot run.');
+			}
+			connection.query(`DELETE FROM chronos_users WHERE sender_id = ?`, [senderId], (error, result, field) => {
+				if (error) {
+					connection.rollback(function () {
+						throw error;
+					});
+				}
+			});
+			connection.query(`DELETE FROM chronos_birthdays_list WHERE sender_id = ?`, [senderId], (error, result, field) => {
+				if (error) {
+					connection.rollback(function () {
+						throw error;
+					});
+				}
+			});
+			connection.commit((error) => {
+				if (error) {
+					connection.rollback(function () {
+						throw error;
+					});
+				}
+			});
+			console.log('transaction success.');
+		});
+		connection.release();
 	});
-
-	connection.beginTransaction((error) => {
-		if (error) {
-			throw new Error('transaction cannot run.');
-		}
-		connection.query(`DELETE FROM chronos_users WHERE sender_id = ?`, [senderId], (error, result, field) => {
-			if (error) {
-				connection.rollback(function () {
-					throw error;
-				});
-			}
-		});
-		connection.query(`DELETE FROM chronos_birthdays_list WHERE sender_id = ?`, [senderId], (error, result, field) => {
-			if (error) {
-				connection.rollback(function () {
-					throw error;
-				});
-			}
-		});
-		connection.commit((error) => {
-			if (error) {
-				connection.rollback(function () {
-					throw error;
-				});
-			}
-		});
-		console.log('transaction success.');
-	});
-
-	connection.end();
 }
 
 async function addBirthday(pool, senderId, channelAccessToken, replyToken, name, year, month, date) {
