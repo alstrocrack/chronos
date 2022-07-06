@@ -60,21 +60,21 @@ exports.main = async (req, res) => {
 	const senderId = requestBody.source.userId;
 	const replyToken = requestBody.replyToken;
 	const requestType = requestBody.type;
-	const requestMessage = requestBody.message.text;
 
 	if (requestType === 'follow' || requestType === 'unfollow') {
 		switch (requestType) {
 			case 'follow':
-				registerUser();
+				registerUser(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken);
 				break;
 			case 'unfollow':
-				unregisterUser();
+				unregisterUser(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId);
 				break;
 		}
-		res.status(200).send(`OK \nreplyToken: ${replyToken}\nsenderId: ${senderId}\nrequestMessage: ${requestMessage}\ncache: ${cache}`);
+		res.status(200).send('OK');
 		return;
 	}
 
+	const requestMessage = requestBody.message.text;
 	if (cache.get(senderId) === undefined) {
 		switch (requestMessage) {
 			case '誕生日の追加':
@@ -98,8 +98,7 @@ exports.main = async (req, res) => {
 				}
 				break;
 			case 'キャンセル':
-				const result = cache.del(senderId);
-				if (result) {
+				if (cache.del(senderId)) {
 					reply(channelAccessToken, replyToken, `キャンセルしました`);
 				} else {
 					reply(channelAccessToken, replyToken, `キャッシュがありません`);
@@ -117,6 +116,7 @@ exports.main = async (req, res) => {
 			} else {
 				reply(channelAccessToken, replyToken, `キャッシュがありません&cache: ${cache.get(senderId).status}`);
 			}
+			return;
 		}
 
 		switch (cache.get(senderId).status) {
@@ -145,13 +145,119 @@ exports.main = async (req, res) => {
 				cache.del(senderId);
 				break;
 			default:
-				reply(channelAccessToken, replyToken, 'received');
+				reply(channelAccessToken, replyToken, '最初からやり直してください');
+				cache.del(senderId);
 				break;
 		}
 	}
 
 	res.status(200).send(`OK \nreplyToken: ${replyToken}\nsenderId: ${senderId}\nrequestMessage: ${requestMessage}\ncache: ${cache}`);
 };
+
+async function registerUser(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken) {
+	const connection = mysql.createConnection({
+		host: dbHost,
+		user: dbUser,
+		password: dbPass,
+		database: dbName,
+		port: dbPort,
+		ssl: {
+			ca: ca,
+			key: key,
+			cert: cert,
+		},
+	});
+
+	connection.connect((error) => {
+		if (error) {
+			console.log(`Connection Error: ${error}`);
+		}
+	});
+
+	await axios({
+		method: 'get',
+		url: `https://api.line.me/v2/bot/profile/${senderId}`,
+		headers: {
+			'Content-Type': 'application/json',
+			'Authorization': `Bearer ${channelAccessToken}`,
+		},
+	})
+		.then((response) => {
+			return response.data.displayName;
+		})
+		.then((name) => {
+			connection.query(
+				`INSERT INTO chronos_users (sender_id, sender_name, created_at) VALUES (?, ?, Now())`,
+				[senderId, name],
+				(error, result, field) => {
+					if (error) {
+						throw new Error(`cannot insert: ${error}`);
+					}
+				},
+			);
+			return name;
+		})
+		.then((name) => {
+			reply(channelAccessToken, replyToken, `こんにちは${name}さん、リッチメニューから操作を選択してください`);
+		})
+		.catch((error) => {
+			console.log(error);
+		})
+		.finally(() => {
+			connection.end();
+		});
+}
+
+function unregisterUser(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId) {
+	const connection = mysql.createConnection({
+		host: dbHost,
+		user: dbUser,
+		password: dbPass,
+		database: dbName,
+		port: dbPort,
+		ssl: {
+			ca: ca,
+			key: key,
+			cert: cert,
+		},
+	});
+
+	connection.connect((error) => {
+		if (error) {
+			console.log(`Connection Error: ${error}`);
+		}
+	});
+
+	connection.beginTransaction((error) => {
+		if (error) {
+			throw new Error('transaction cannot run.');
+		}
+		connection.query(`DELETE FROM chronos_users WHERE sender_id = ?`, [senderId], (error, result, field) => {
+			if (error) {
+				connection.rollback(function () {
+					throw error;
+				});
+			}
+		});
+		connection.query(`DELETE FROM chronos_birthdays_list WHERE sender_id = ?`, [senderId], (error, result, field) => {
+			if (error) {
+				connection.rollback(function () {
+					throw error;
+				});
+			}
+		});
+		connection.commit((error) => {
+			if (error) {
+				connection.rollback(function () {
+					throw error;
+				});
+			}
+		});
+		console.log('transaction success.');
+	});
+
+	connection.end();
+}
 
 async function addBirthday(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken, name, year, month, date) {
 	const connection = mysql.createConnection({
