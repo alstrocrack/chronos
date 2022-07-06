@@ -100,7 +100,7 @@ exports.main = async (req, res) => {
 				}
 				break;
 			case '誕生日の一覧':
-				deliverBirthdaysList(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken);
+				deliverBirthdaysList(pool, senderId, channelAccessToken, replyToken);
 				break;
 			case '誕生日の削除':
 				cacheObject.status = 3;
@@ -154,7 +154,7 @@ exports.main = async (req, res) => {
 				break;
 			// 誕生日の削除
 			case 3:
-				deleteBirthday(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken, requestMessage);
+				deleteBirthday(pool, senderId, channelAccessToken, replyToken, requestMessage);
 				cache.del(senderId);
 				break;
 			default:
@@ -296,32 +296,19 @@ async function addBirthday(pool, senderId, channelAccessToken, replyToken, name,
 	reply(channelAccessToken, replyToken, message);
 }
 
-async function deleteBirthday(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken, name) {
-	const connection = mysql.createConnection({
-		host: dbHost,
-		user: dbUser,
-		password: dbPass,
-		database: dbName,
-		port: dbPort,
-		ssl: {
-			ca: ca,
-			key: key,
-			cert: cert,
-		},
-	});
-
-	connection.connect((error) => {
-		if (error) {
-			console.log(`Connection Error: ${error}`);
-		}
-	});
-
-	const results = await new Promise((resolve, reject) => {
-		connection.query(`DELETE FROM chronos.chronos_birthdays_list WHERE name = ? AND sender_id = ?`, [name, senderId], (error, result, field) => {
+async function deleteBirthday(pool, senderId, channelAccessToken, replyToken, name) {
+	await new Promise((resolve, reject) => {
+		pool.getConnection((error, connection) => {
 			if (error) {
-				reject(error);
+				throw new Error(error);
 			}
-			resolve(result);
+			connection.query(`DELETE FROM chronos.chronos_birthdays_list WHERE name = ? AND sender_id = ?`, [name, senderId], (error, result, field) => {
+				if (error) {
+					reject(error);
+				}
+				resolve(result);
+				connection.release();
+			});
 		});
 	})
 		.then((result) => {
@@ -333,43 +320,25 @@ async function deleteBirthday(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, c
 		})
 		.catch((error) => {
 			console.log(error);
-		})
-		.finally(() => {
-			connection.end();
 		});
 }
 
-async function deliverBirthdaysList(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken) {
-	const connection = mysql.createConnection({
-		host: dbHost,
-		user: dbUser,
-		password: dbPass,
-		database: dbName,
-		port: dbPort,
-		ssl: {
-			ca: ca,
-			key: key,
-			cert: cert,
-		},
-	});
-
-	connection.connect((error) => {
-		if (error) {
-			console.log(`Connection Error: ${error}`);
-		}
-	});
-
+async function deliverBirthdaysList(pool, senderId, channelAccessToken, replyToken) {
 	const results = await new Promise((resolve, reject) => {
-		connection.query(
-			`SELECT name, year, concat(month,"/",date) AS day FROM chronos_birthdays_list WHERE sender_id = ?`,
-			[senderId],
-			(error, result, field) => {
-				error ? reject(error) : resolve(result);
-			},
-		);
+		pool.getConnection((error, connection) => {
+			if (error) {
+				throw new Error(error);
+			}
+			connection.query(
+				`SELECT name, year, concat(month,"/",date) AS day FROM chronos_birthdays_list WHERE sender_id = ?`,
+				[senderId],
+				(error, result, field) => {
+					error ? reject(error) : resolve(result);
+					connection.release();
+				},
+			);
+		});
 	});
-
-	connection.end();
 
 	let list = '';
 	for (let i = 0; i < results.length; i++) {
