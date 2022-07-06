@@ -149,7 +149,13 @@ exports.main = async (req, res) => {
 				}
 				break;
 			case 2:
-				addBirthday();
+				const name = cache.get(senderId).name;
+				const splittedDate = requestMessage.split('/');
+				const [year, month, date] =
+					splittedDate.length === 3 ? [splittedDate[0], splittedDate[1], splittedDate[2]] : [null, splittedDate[0], splittedDate[1]];
+				addBirthday(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken, name, year, month, date);
+				cache.del(senderId);
+				break;
 			default:
 				reply(channelAccessToken, replyToken, 'received');
 				break;
@@ -158,6 +164,46 @@ exports.main = async (req, res) => {
 
 	res.status(200).send(`OK \nreplyToken: ${replyToken}\nsenderId: ${senderId}\nrequestMessage: ${requestMessage}\ncache: ${cache}`);
 };
+
+async function addBirthday(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken, name, year, month, date) {
+	const connection = mysql.createConnection({
+		host: dbHost,
+		user: dbUser,
+		password: dbPass,
+		database: dbName,
+		port: dbPort,
+		ssl: {
+			ca: ca,
+			key: key,
+			cert: cert,
+		},
+	});
+
+	connection.connect((error) => {
+		if (error) {
+			console.log(`Connection Error: ${error}`);
+		}
+	});
+
+	const results = await new Promise((resolve, reject) => {
+		connection.query(
+			`INSERT INTO chronos_birthdays_list (name, year, month, date, sender_id, created_at) VALUES (?, ?, ?, ?, ?, Now())`,
+			[name, year, month, date, senderId],
+			(error, result, field) => {
+				if (error) {
+					reject(error);
+					throw new Error('cannot insert.');
+				}
+				resolve(result);
+			},
+		);
+	});
+
+	connection.end();
+
+	const message = year === null ? `${name}さんを${month}/${date}で登録しました` : `${name}さんを${year}/${month}/${date}で登録しました`;
+	reply(channelAccessToken, replyToken, message);
+}
 
 async function deliverBirthdaysList(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken) {
 	const connection = mysql.createConnection({
@@ -188,6 +234,8 @@ async function deliverBirthdaysList(dbUser, dbPass, dbName, dbHost, dbPort, ca, 
 			},
 		);
 	});
+
+	connection.end();
 
 	let list = '';
 	for (let i = 0; i < results.length; i++) {
