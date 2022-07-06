@@ -56,27 +56,6 @@ exports.main = async (req, res) => {
 		return;
 	}
 
-	// const connection = mysql.createConnection({
-	// 	host: dbHost,
-	// 	user: dbUser,
-	// 	password: dbPass,
-	// 	port: dbPort,
-	// 	ssl: {
-	// 		ca: ca,
-	// 		key: key,
-	// 		cert: cert,
-	// 	},
-	// });
-
-	// connection.connect((error) => {
-	// 	if (error) {
-	// 		console.log(`Connection Error: ${error}`);
-	// 	}
-	// });
-	// connection.query(`SHOW DATABASES`, (err, results) => {
-	// 	err ? console.log(err) : console.log(JSON.stringify({ results }));
-	// });
-
 	const requestBody = req.body.events[0];
 	const senderId = requestBody.source.userId;
 	const replyToken = requestBody.replyToken;
@@ -100,44 +79,48 @@ exports.main = async (req, res) => {
 		switch (requestMessage) {
 			case '誕生日の追加':
 				cacheObject.status = 1;
-				const success = cache.set(senderId, cacheObject);
-				if (success) {
+				if (cache.set(senderId, cacheObject)) {
 					console.log(`cache: ${cache.get(senderId).status}`);
-					reply(channelAccessToken, replyToken, `誕生日を追加する人の名前を10文字以内で入力しください&cache: ${JSON.stringify(cache.get(senderId))}`);
+					reply(channelAccessToken, replyToken, `誕生日を追加する人の名前を10文字以内で入力しください&cache: ${cache.get(senderId).status}`);
 				} else {
-					reply(channelAccessToken, replyToken, `もう一度試してください: ${cache}`);
+					reply(channelAccessToken, replyToken, `もう一度試してください&cache: ${cache.get(senderId).status}`);
 				}
 				break;
 			case '誕生日の一覧':
 				deliverBirthdaysList(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken);
 				break;
 			case '誕生日の削除':
-				cache.status = 3;
-				reply(channelAccessToken, replyToken, `誕生日を削除する人の名前を10文字以内で入力しください&cache: ${cache}`);
+				cacheObject.status = 3;
+				if (cache.set(senderId, cacheObject)) {
+					reply(channelAccessToken, replyToken, `誕生日を削除する人の名前を10文字以内で入力しください&cache: ${cache.get(senderId).status}`);
+				} else {
+					reply(channelAccessToken, replyToken, `もう一度試してください&cache: ${cache.get(senderId).status}`);
+				}
 				break;
 			case 'キャンセル':
 				const result = cache.del(senderId);
 				if (result) {
-					reply(channelAccessToken, replyToken, `キャンセルしました&cache: ${cache}`);
+					reply(channelAccessToken, replyToken, `キャンセルしました`);
 				} else {
-					reply(channelAccessToken, replyToken, `キャッシュがありません: ${cache}`);
+					reply(channelAccessToken, replyToken, `キャッシュがありません`);
 				}
 				break;
 			default:
-				reply(channelAccessToken, replyToken, `リッチメニューから選択してください&cache: ${JSON.stringify(cache)}`);
+				reply(channelAccessToken, replyToken, `リッチメニューから選択してください&cache: ${cache.get(senderId).status}`);
 				break;
 		}
 	} else {
 		if (requestMessage == 'キャンセル') {
 			const result = cache.del(senderId);
 			if (result) {
-				reply(channelAccessToken, replyToken, `他のメニューを選択してください&cache: ${cache}`);
+				reply(channelAccessToken, replyToken, `他のメニューを選択してください&cache: ${cache.get(senderId).status}`);
 			} else {
-				reply(channelAccessToken, replyToken, `キャッシュがありません: ${cache}`);
+				reply(channelAccessToken, replyToken, `キャッシュがありません&cache: ${cache.get(senderId).status}`);
 			}
 		}
 
 		switch (cache.get(senderId).status) {
+			// 誕生日の追加
 			case 1:
 				cacheObject.status = 2;
 				cacheObject.name = requestMessage;
@@ -154,6 +137,11 @@ exports.main = async (req, res) => {
 				const [year, month, date] =
 					splittedDate.length === 3 ? [splittedDate[0], splittedDate[1], splittedDate[2]] : [null, splittedDate[0], splittedDate[1]];
 				addBirthday(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken, name, year, month, date);
+				cache.del(senderId);
+				break;
+			// 誕生日の削除
+			case 3:
+				deleteBirthday(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken, requestMessage);
 				cache.del(senderId);
 				break;
 			default:
@@ -203,6 +191,49 @@ async function addBirthday(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert
 
 	const message = year === null ? `${name}さんを${month}/${date}で登録しました` : `${name}さんを${year}/${month}/${date}で登録しました`;
 	reply(channelAccessToken, replyToken, message);
+}
+
+async function deleteBirthday(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken, name) {
+	const connection = mysql.createConnection({
+		host: dbHost,
+		user: dbUser,
+		password: dbPass,
+		database: dbName,
+		port: dbPort,
+		ssl: {
+			ca: ca,
+			key: key,
+			cert: cert,
+		},
+	});
+
+	connection.connect((error) => {
+		if (error) {
+			console.log(`Connection Error: ${error}`);
+		}
+	});
+
+	const results = await new Promise((resolve, reject) => {
+		connection.query(`DELETE FROM chronos.chronos_birthdays_list WHERE name = ? AND sender_id = ?`, [name, senderId], (error, result, field) => {
+			if (error) {
+				reject(error);
+			}
+			resolve(result);
+		});
+	})
+		.then((result) => {
+			if (result.affectedRows === 0) {
+				reply(channelAccessToken, replyToken, `${name}さんが見つかりませんでした`);
+			} else {
+				reply(channelAccessToken, replyToken, `${name}さんを削除しました`);
+			}
+		})
+		.catch((error) => {
+			console.log(error);
+		})
+		.finally(() => {
+			connection.end();
+		});
 }
 
 async function deliverBirthdaysList(dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, senderId, channelAccessToken, replyToken) {
