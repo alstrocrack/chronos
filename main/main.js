@@ -59,6 +59,7 @@ exports.main = async (req, res) => {
 	}
 
 	const pool = mysql.createPool({
+		connectionLimit: 10,
 		host: dbHost,
 		user: dbUser,
 		password: dbPass,
@@ -170,7 +171,7 @@ exports.main = async (req, res) => {
 		}
 	}
 
-	res.status(200).send(`OK \nreplyToken: ${replyToken}\nsenderId: ${senderId}\nrequestMessage: ${requestMessage}\ncache: ${cache}`);
+	res.status(200).send('OK');
 };
 
 async function registerUser(pool, senderId, channelAccessToken, replyToken) {
