@@ -25,6 +25,8 @@ const pathToChannelSecret = 'projects/199194440168/secrets/CHANNEL_SECRET/versio
 const client = new SecretManagerServiceClient();
 const cache = new NodeCache({ stdTTL: 100, checkperiod: 120 });
 
+const regEx = /^((19|20)\d{2}\/)?(0[1-9]|[1-9]|1[0-2]|)\/(0[1-9]|[1-9]|[1-2]\d{1}|3[0-1])$/g;
+
 const cacheObject = {
 	status: 0,
 	name: null,
@@ -145,6 +147,10 @@ exports.main = async (req, res) => {
 				}
 				break;
 			case 2:
+				if (!regEx.test(requestMessage)) {
+					reply(channelAccessToken, replyToken, `生年月日を正しく入力してください: ${cache.get(senderId).status}`);
+					break;
+				}
 				const name = cache.get(senderId).name;
 				const splittedDate = requestMessage.split('/');
 				const [year, month, date] =
