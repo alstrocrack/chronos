@@ -96,10 +96,9 @@ exports.main = async (req, res) => {
 			case '誕生日の追加':
 				cacheObject.status = 1;
 				if (cache.set(senderId, cacheObject)) {
-					console.log(`cache: ${cache.get(senderId).status}`);
-					reply(channelAccessToken, replyToken, `誕生日を追加する人の名前を10文字以内で入力しください&cache: ${cache.get(senderId).status}`);
+					reply(channelAccessToken, replyToken, '誕生日を追加する人の名前を10文字以内で入力してください');
 				} else {
-					reply(channelAccessToken, replyToken, `もう一度試してください&cache: ${cache.get(senderId).status}`);
+					reply(channelAccessToken, replyToken, 'もう一度、入力してください');
 				}
 				break;
 			case '誕生日の一覧':
@@ -108,29 +107,24 @@ exports.main = async (req, res) => {
 			case '誕生日の削除':
 				cacheObject.status = 3;
 				if (cache.set(senderId, cacheObject)) {
-					reply(channelAccessToken, replyToken, `誕生日を削除する人の名前を10文字以内で入力しください&cache: ${cache.get(senderId).status}`);
+					reply(channelAccessToken, replyToken, '誕生日を削除する人の名前を10文字以内で入力してください');
 				} else {
-					reply(channelAccessToken, replyToken, `もう一度試してください&cache: ${cache.get(senderId).status}`);
+					reply(channelAccessToken, replyToken, 'もう一度、入力してください');
 				}
 				break;
 			case 'キャンセル':
 				if (cache.del(senderId)) {
-					reply(channelAccessToken, replyToken, `キャンセルしました`);
-				} else {
-					reply(channelAccessToken, replyToken, `キャッシュがありません`);
+					reply(channelAccessToken, replyToken, '操作をキャンセルしました');
 				}
 				break;
 			default:
-				reply(channelAccessToken, replyToken, `リッチメニューから選択してください&cache: ${cache.get(senderId).status}`);
+				reply(channelAccessToken, replyToken, 'リッチメニューから操作を選択してください');
 				break;
 		}
 	} else {
 		if (requestMessage == 'キャンセル') {
-			const result = cache.del(senderId);
-			if (result) {
-				reply(channelAccessToken, replyToken, `他のメニューを選択してください&cache: ${cache.get(senderId).status}`);
-			} else {
-				reply(channelAccessToken, replyToken, `キャッシュがありません&cache: ${cache.get(senderId).status}`);
+			if (cache.del(senderId)) {
+				reply(channelAccessToken, replyToken, '操作をキャンセルしました');
 			}
 			return;
 		}
@@ -140,16 +134,23 @@ exports.main = async (req, res) => {
 			case 1:
 				cacheObject.status = 2;
 				cacheObject.name = requestMessage;
-				const result = cache.set(senderId, cacheObject);
-				if (result) {
-					reply(channelAccessToken, replyToken, `生年月日を入力してください: ${cache.get(senderId).status}`);
+				if (cache.set(senderId, cacheObject)) {
+					reply(
+						channelAccessToken,
+						replyToken,
+						'生年月日を「1996/12/20」の形式で入力してください\n・年はなくても大丈夫です（例）「12/20」\n・0はあってもなくても大丈夫です（例）「4/5」「04/05」',
+					);
 				} else {
-					reply(channelAccessToken, replyToken, `再度入力してください: ${cache.get(senderId).status}`);
+					reply(channelAccessToken, replyToken, 'もう一度、入力してください');
 				}
 				break;
 			case 2:
 				if (!regEx.test(requestMessage)) {
-					reply(channelAccessToken, replyToken, `生年月日を正しく入力してください: ${cache.get(senderId).status}`);
+					reply(
+						channelAccessToken,
+						replyToken,
+						'生年月日を正しく入力してください（例）「1996/12/20」\n・年はなくても大丈夫です（例）「12/20」\n・0はあってもなくても大丈夫です（例）「4/5」「04/05」',
+					);
 					break;
 				}
 				const name = cache.get(senderId).name;
@@ -165,7 +166,7 @@ exports.main = async (req, res) => {
 				cache.del(senderId);
 				break;
 			default:
-				reply(channelAccessToken, replyToken, '最初からやり直してください');
+				reply(channelAccessToken, replyToken, 'すみませんが、最初からやり直してください');
 				cache.del(senderId);
 				break;
 		}
@@ -205,7 +206,11 @@ async function registerUser(pool, senderId, channelAccessToken, replyToken) {
 			return name;
 		})
 		.then((name) => {
-			reply(channelAccessToken, replyToken, `こんにちは${name}さん、リッチメニューから操作を選択してください`);
+			reply(
+				channelAccessToken,
+				replyToken,
+				`こんにちは${name}さん、Birthday Reminderを友達登録していただきありがとうございます！\nさっそく、誕生日を追加してみましょう！`,
+			);
 		})
 		.catch((error) => {
 			console.log(error);
@@ -325,7 +330,7 @@ async function deliverBirthdaysList(pool, senderId, channelAccessToken, replyTok
 		}
 	}
 
-	reply(channelAccessToken, replyToken, `誕生日の一覧: ${list}`);
+	reply(channelAccessToken, replyToken, `誕生日の一覧: ${list === '' ? '\n誕生日はまだありません' : list}`);
 }
 
 async function accessSecretVersion(secretKey) {
