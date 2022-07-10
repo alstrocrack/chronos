@@ -118,6 +118,8 @@ exports.main = async (req, res) => {
 			case 'キャンセル':
 				if (cache.del(senderId)) {
 					reply(channelAccessToken, replyToken, '操作をキャンセルしました');
+				} else {
+					reply(channelAccessToken, replyToken, '他の操作を選択してください');
 				}
 				break;
 			default:
@@ -125,16 +127,23 @@ exports.main = async (req, res) => {
 				break;
 		}
 	} else {
-		if (requestMessage == 'キャンセル') {
+		if (requestMessage === 'キャンセル') {
 			if (cache.del(senderId)) {
 				reply(channelAccessToken, replyToken, '操作をキャンセルしました');
+				return;
+			} else {
+				return new Error('cannot cancel.');
 			}
-			return;
 		}
 
 		switch (cache.get(senderId).status) {
 			// 誕生日の追加
 			case 1:
+				console.log(requestMessage.length);
+				if (requestMessage.length > 10) {
+					reply(channelAccessToken, replyToken, '10文字以内で入力してください');
+					break;
+				}
 				cacheObject.status = 2;
 				cacheObject.name = requestMessage;
 				if (cache.set(senderId, cacheObject)) {
