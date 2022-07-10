@@ -25,3 +25,4 @@ You can delete the birthday added in "誕生日の削除".
 And, you can choose operation in LINE richmenu.
 
 ## UI
+![File (1)](https://user-images.githubusercontent.com/56684832/178138259-cdc80a37-03fc-4583-8c92-054a01000d5d.jpg)
