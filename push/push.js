@@ -7,19 +7,21 @@
 const axios = require('axios');
 const mysql = require('mysql');
 const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
-const pathToDBUser = 'projects/199194440168/secrets/DB_USER/versions/latest';
-const pathToDBPass = 'projects/199194440168/secrets/DB_PASS/versions/latest';
-const pathToDBHost = 'projects/199194440168/secrets/DB_HOST/versions/latest';
-const pathToDBName = 'projects/199194440168/secrets/DB_NAME/versions/latest';
-const pathToDBPort = 'projects/199194440168/secrets/DB_PORT/versions/latest';
-
-const pathToCa = 'projects/199194440168/secrets/DB_CA/versions/latest';
-const pathToKey = 'projects/199194440168/secrets/DB_KEY/versions/latest';
-const pathToCert = 'projects/199194440168/secrets/DB_CERT/versions/latest';
-
-const pathTochannelAccessToken = 'projects/199194440168/secrets/CHANNEL_ACCESS_TOKEN/versions/latest';
-
 const client = new SecretManagerServiceClient();
+
+const pathToDBUser = process.env.PATH_TO_DB_USER;
+const pathToDBPass = process.env.PATH_TO_DB_PASS;
+const pathToDBHost = process.env.PATH_TO_DB_HOST;
+const pathToDBName = process.env.PATH_TO_DB_NAME;
+const pathToDBPort = process.env.PATH_TO_DB_PORT;
+
+const pathToCa = process.env.PATH_TO_CA;
+const pathToKey = process.env.PATH_TO_KEY;
+const pathToCert = process.env.PATH_TO_CERT;
+
+const pathToChannelAccessToken = process.env.PATH_TO_CHANNEL_ACCESS_TOKEN;
+
+const userBirthdaysTableName = process.env.USER_BIRTHDAYS_TABLE_NAME;
 
 exports.push = async (event, context) => {
 	const [dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, channelAccessToken] = await Promise.all([
@@ -31,7 +33,7 @@ exports.push = async (event, context) => {
 		accessSecretVersion(pathToCa),
 		accessSecretVersion(pathToKey),
 		accessSecretVersion(pathToCert),
-		accessSecretVersion(pathTochannelAccessToken),
+		accessSecretVersion(pathToChannelAccessToken),
 	]);
 
 	const [year, month, date] = [new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate()];
@@ -59,7 +61,7 @@ exports.push = async (event, context) => {
 
 	await new Promise((resolve, reject) => {
 		connection.query(
-			`SELECT name, year, concat(month, "/",date) AS day, sender_id FROM chronos_birthdays_list WHERE month = ? AND date = ?`,
+			`SELECT name, year, concat(month, "/",date) AS day, sender_id FROM ${userBirthdaysTableName} WHERE month = ? AND date = ?`,
 			[month, date],
 			(error, result, field) => {
 				if (error) {

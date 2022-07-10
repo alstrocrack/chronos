@@ -9,21 +9,24 @@ const mysql = require('mysql');
 const crypto = require('crypto');
 const NodeCache = require('node-cache');
 const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
-const pathToDBUser = 'projects/199194440168/secrets/DB_USER/versions/latest';
-const pathToDBPass = 'projects/199194440168/secrets/DB_PASS/versions/latest';
-const pathToDBHost = 'projects/199194440168/secrets/DB_HOST/versions/latest';
-const pathToDBName = 'projects/199194440168/secrets/DB_NAME/versions/latest';
-const pathToDBPort = 'projects/199194440168/secrets/DB_PORT/versions/latest';
-
-const pathToCa = 'projects/199194440168/secrets/DB_CA/versions/latest';
-const pathToKey = 'projects/199194440168/secrets/DB_KEY/versions/latest';
-const pathToCert = 'projects/199194440168/secrets/DB_CERT/versions/latest';
-
-const pathTochannelAccessToken = 'projects/199194440168/secrets/CHANNEL_ACCESS_TOKEN/versions/latest';
-const pathToChannelSecret = 'projects/199194440168/secrets/CHANNEL_SECRET/versions/latest';
-
 const client = new SecretManagerServiceClient();
 const cache = new NodeCache({ stdTTL: 100, checkperiod: 120 });
+
+const pathToDBUser = process.env.PATH_TO_DB_USER;
+const pathToDBPass = process.env.PATH_TO_DB_PASS;
+const pathToDBHost = process.env.PATH_TO_DB_HOST;
+const pathToDBName = process.env.PATH_TO_DB_NAME;
+const pathToDBPort = process.env.PATH_TO_DB_PORT;
+
+const pathToCa = process.env.PATH_TO_CA;
+const pathToKey = process.env.PATH_TO_KEY;
+const pathToCert = process.env.PATH_TO_CERT;
+
+const pathToChannelAccessToken = process.env.PATH_TO_CHANNEL_ACCESS_TOKEN;
+const pathToChannelSecret = process.env.PATH_TO_CHANNEL_SECRET;
+
+const userTableName = process.env.USER_TABLE_NAME;
+const userBirthdaysTableName = process.env.USER_BIRTHDAYS_TABLE_NAME;
 
 const regEx = /^((19|20)\d{2}\/)?(0[1-9]|[1-9]|1[0-2]|)\/(0[1-9]|[1-9]|[1-2]\d{1}|3[0-1])$/g;
 
@@ -42,7 +45,7 @@ exports.main = async (req, res) => {
 		accessSecretVersion(pathToCa),
 		accessSecretVersion(pathToKey),
 		accessSecretVersion(pathToCert),
-		accessSecretVersion(pathTochannelAccessToken),
+		accessSecretVersion(pathToChannelAccessToken),
 		accessSecretVersion(pathToChannelSecret),
 	]);
 
@@ -193,7 +196,7 @@ async function registerUser(pool, senderId, channelAccessToken, replyToken) {
 					throw new Error(error);
 				}
 				connection.query(
-					`INSERT INTO chronos_users (sender_id, sender_name, created_at) VALUES (?, ?, Now())`,
+					`INSERT INTO ${userTableName} (sender_id, sender_name, created_at) VALUES (?, ?, Now())`,
 					[senderId, name],
 					(error, result, field) => {
 						connection.release();
@@ -226,14 +229,14 @@ function unregisterUser(pool, senderId) {
 			if (error) {
 				throw new Error('transaction cannot run.');
 			}
-			connection.query(`DELETE FROM chronos_users WHERE sender_id = ?`, [senderId], (error, result, field) => {
+			connection.query(`DELETE FROM ${userTableName} WHERE sender_id = ?`, [senderId], (error, result, field) => {
 				if (error) {
 					connection.rollback(function () {
 						throw error;
 					});
 				}
 			});
-			connection.query(`DELETE FROM chronos_birthdays_list WHERE sender_id = ?`, [senderId], (error, result, field) => {
+			connection.query(`DELETE FROM ${userBirthdaysTableName} WHERE sender_id = ?`, [senderId], (error, result, field) => {
 				if (error) {
 					connection.rollback(function () {
 						throw error;
@@ -260,7 +263,7 @@ async function addBirthday(pool, senderId, channelAccessToken, replyToken, name,
 				throw new Error(error);
 			}
 			connection.query(
-				`INSERT INTO chronos_birthdays_list (name, year, month, date, sender_id, created_at) VALUES (?, ?, ?, ?, ?, Now())`,
+				`INSERT INTO ${userBirthdaysTableName} (name, year, month, date, sender_id, created_at) VALUES (?, ?, ?, ?, ?, Now())`,
 				[name, year, month, date, senderId],
 				(error, result, field) => {
 					if (error) {
@@ -283,7 +286,7 @@ async function deleteBirthday(pool, senderId, channelAccessToken, replyToken, na
 			if (error) {
 				throw new Error(error);
 			}
-			connection.query(`DELETE FROM chronos.chronos_birthdays_list WHERE name = ? AND sender_id = ?`, [name, senderId], (error, result, field) => {
+			connection.query(`DELETE FROM ${userBirthdaysTableName} WHERE name = ? AND sender_id = ?`, [name, senderId], (error, result, field) => {
 				if (error) {
 					reject(error);
 				}
@@ -311,7 +314,7 @@ async function deliverBirthdaysList(pool, senderId, channelAccessToken, replyTok
 				throw new Error(error);
 			}
 			connection.query(
-				`SELECT name, year, concat(month,"/",date) AS day FROM chronos_birthdays_list WHERE sender_id = ?`,
+				`SELECT name, year, concat(month,"/",date) AS day FROM ${userBirthdaysTableName} WHERE sender_id = ?`,
 				[senderId],
 				(error, result, field) => {
 					error ? reject(error) : resolve(result);
