@@ -30,11 +30,6 @@ const userBirthdaysTableName = process.env.USER_BIRTHDAYS_TABLE_NAME;
 
 const regEx = /^((19|20)\d{2}\/)?(0[1-9]|[1-9]|1[0-2]|)\/(0[1-9]|[1-9]|[1-2]\d{1}|3[0-1])$/g;
 
-const cacheObject = {
-	status: 0,
-	name: null,
-};
-
 exports.main = async (req, res) => {
 	const [dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, channelAccessToken, channelSecret] = await Promise.all([
 		accessSecretVersion(pathToDBUser),
@@ -50,12 +45,30 @@ exports.main = async (req, res) => {
 	]);
 
 	const body = req.body;
+	const requestBody = body.events[0];
+	const senderId = requestBody.source.userId;
+	const requestType = requestBody.type;
+	const replyToken = requestBody.replyToken;
+
+	const cacheObject = {
+		status: 0,
+		name: null,
+	};
+	let status;
+	if (cache.get(senderId)) {
+		status = cache.get(senderId).status;
+		// for debug
+		console.log(`キャッシュ: ${status}`);
+	} else {
+		console.log('NO ANY CACHE');
+	}
+
 	const digest = crypto
 		.createHmac('SHA256', channelSecret)
 		.update(Buffer.from(JSON.stringify(body)))
 		.digest('base64');
 	const signature = req.headers['x-line-signature'];
-	if (digest !== signature) {
+	if (digest !== signature || typeof replyToken === 'undefined') {
 		res.status(403);
 		res.send('This request is invalid');
 		return;
@@ -74,11 +87,6 @@ exports.main = async (req, res) => {
 			cert: cert,
 		},
 	});
-
-	const requestBody = req.body.events[0];
-	const senderId = requestBody.source.userId;
-	const replyToken = requestBody.replyToken;
-	const requestType = requestBody.type;
 
 	if (requestType === 'follow' || requestType === 'unfollow') {
 		switch (requestType) {
@@ -136,10 +144,9 @@ exports.main = async (req, res) => {
 			}
 		}
 
-		switch (cache.get(senderId).status) {
-			// 誕生日の追加
+		switch (status) {
+			// Add birthday
 			case 1:
-				console.log(requestMessage.length);
 				if (requestMessage.length > 10) {
 					reply(channelAccessToken, replyToken, '10文字以内で入力してください');
 					break;
@@ -152,12 +159,21 @@ exports.main = async (req, res) => {
 						replyToken,
 						'生年月日を「1996/12/20」の形式で入力してください\n・年はなくても大丈夫です（例）「12/20」\n・0はあってもなくても大丈夫です（例）「4/5」「04/05」',
 					);
+					break;
 				} else {
 					reply(channelAccessToken, replyToken, 'もう一度、入力してください');
+					break;
 				}
-				break;
 			case 2:
-				if (!regEx.test(requestMessage)) {
+				if (regEx.test(requestMessage)) {
+					const name = cache.get(senderId).name;
+					const splittedDate = requestMessage.split('/');
+					const [year, month, date] =
+						splittedDate.length === 3 ? [splittedDate[0], splittedDate[1], splittedDate[2]] : [null, splittedDate[0], splittedDate[1]];
+					addBirthday(pool, senderId, channelAccessToken, replyToken, name, year, month, date);
+					cache.del(senderId);
+					break;
+				} else {
 					reply(
 						channelAccessToken,
 						replyToken,
@@ -165,21 +181,16 @@ exports.main = async (req, res) => {
 					);
 					break;
 				}
-				const name = cache.get(senderId).name;
-				const splittedDate = requestMessage.split('/');
-				const [year, month, date] =
-					splittedDate.length === 3 ? [splittedDate[0], splittedDate[1], splittedDate[2]] : [null, splittedDate[0], splittedDate[1]];
-				addBirthday(pool, senderId, channelAccessToken, replyToken, name, year, month, date);
-				cache.del(senderId);
-				break;
-			// 誕生日の削除
+			// Delete birthday
 			case 3:
 				deleteBirthday(pool, senderId, channelAccessToken, replyToken, requestMessage);
 				cache.del(senderId);
 				break;
 			default:
 				reply(channelAccessToken, replyToken, 'すみませんが、最初からやり直してください');
-				cache.del(senderId);
+				if (cache.get(senderId)) {
+					cache.del(senderId);
+				}
 				break;
 		}
 	}
