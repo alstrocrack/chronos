@@ -1,32 +1,16 @@
-/**
- * Responds to any HTTP request.
- *
- * @param {!express:Request} req HTTP request context.
- * @param {!express:Response} res HTTP response context.
- */
-const axios = require('axios');
-const mysql = require('mysql');
-const crypto = require('crypto');
-const NodeCache = require('node-cache');
-const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
-const client = new SecretManagerServiceClient();
-const cache = new NodeCache({ stdTTL: 100, checkperiod: 120 });
+import 'dotenv/config';
+import { connect } from '@planetscale/database';
+import axios from 'axios';
+import crypto from 'crypto';
 
-const pathToDBUser = process.env.PATH_TO_DB_USER;
-const pathToDBPass = process.env.PATH_TO_DB_PASS;
-const pathToDBHost = process.env.PATH_TO_DB_HOST;
-const pathToDBName = process.env.PATH_TO_DB_NAME;
-const pathToDBPort = process.env.PATH_TO_DB_PORT;
+const config = {
+	host: process.env.DATABASE_HOST,
+	username: process.env.DATABASE_USERNAME,
+	password: process.env.DATABASE_PASSWORD,
+};
 
-const pathToCa = process.env.PATH_TO_CA;
-const pathToKey = process.env.PATH_TO_KEY;
-const pathToCert = process.env.PATH_TO_CERT;
-
-const pathToChannelAccessToken = process.env.PATH_TO_CHANNEL_ACCESS_TOKEN;
-const pathToChannelSecret = process.env.PATH_TO_CHANNEL_SECRET;
-
-const userTableName = process.env.USER_TABLE_NAME;
-const userBirthdaysTableName = process.env.USER_BIRTHDAYS_TABLE_NAME;
+const conn = connect(config);
+const results = await conn.execute('select 1 from dual where 1=?', [1]);
 
 const regEx = /^((19|20)\d{2}\/)?(0[1-9]|[1-9]|1[0-2]|)\/(0[1-9]|[1-9]|[1-2]\d{1}|3[0-1])$/g;
 
