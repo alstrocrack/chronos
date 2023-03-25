@@ -1,32 +1,31 @@
 import 'dotenv/config';
 import { connect } from '@planetscale/database';
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import axios from 'axios';
 import crypto from 'crypto';
 
-const config = {
-	host: process.env.DATABASE_HOST,
-	username: process.env.DATABASE_USERNAME,
-	password: process.env.DATABASE_PASSWORD,
-};
-
-const conn = connect(config);
-const results = await conn.execute('select 1 from dual where 1=?', [1]);
-
 const regEx = /^((19|20)\d{2}\/)?(0[1-9]|[1-9]|1[0-2]|)\/(0[1-9]|[1-9]|[1-2]\d{1}|3[0-1])$/g;
 
-exports.main = async (req, res) => {
-	const [dbUser, dbPass, dbName, dbHost, dbPort, ca, key, cert, channelAccessToken, channelSecret] = await Promise.all([
-		accessSecretVersion(pathToDBUser),
-		accessSecretVersion(pathToDBPass),
-		accessSecretVersion(pathToDBName),
-		accessSecretVersion(pathToDBHost),
-		accessSecretVersion(pathToDBPort),
-		accessSecretVersion(pathToCa),
-		accessSecretVersion(pathToKey),
-		accessSecretVersion(pathToCert),
-		accessSecretVersion(pathToChannelAccessToken),
-		accessSecretVersion(pathToChannelSecret),
-	]);
+interface Secrets {
+	DATABASE_HOST: string;
+	DATABASE_USERNAME: string;
+	DATABASE_PASSWORD: string;
+}
+
+exports.main = async (event: any, context: any) => {
+	const dbCredentials = await getDBCredentials();
+	if (!dbCredentials) {
+		throw new Error('Not Found DB Credentials');
+	}
+
+	const config = {
+		host: dbCredentials.DATABASE_HOST,
+		username: dbCredentials.DATABASE_USERNAME,
+		password: dbCredentials.DATABASE_PASSWORD,
+	};
+
+	const conn = connect(config);
+	// const results = await conn.execute('select 1 from dual where 1=?', [1]);
 
 	const body = req.body;
 	const requestBody = body.events[0];
@@ -181,6 +180,28 @@ exports.main = async (req, res) => {
 
 	res.status(200).send('OK');
 };
+
+async function getDBCredentials(): Promise<Secrets | null> {
+	const secret_name = process.env.SECRET_NAME;
+	const client = new SecretsManagerClient({
+		region: 'ap-northeast-1',
+		credentials: { accessKeyId: process.env.ACCESS_KEY_ID!, secretAccessKey: process.env.SECRET_ACCESS_KEY! },
+	});
+
+	let response;
+	try {
+		response = await client.send(
+			new GetSecretValueCommand({
+				SecretId: secret_name,
+				VersionStage: 'AWSCURRENT', // VersionStage defaults to AWSCURRENT if unspecified
+			}),
+		);
+	} catch (error) {
+		throw new Error(`can't get the DB credentials: ${error}`);
+	}
+
+	return response?.SecretString ? JSON.parse(response.SecretString) : null;
+}
 
 async function registerUser(pool, senderId, channelAccessToken, replyToken) {
 	await axios({
