@@ -13,7 +13,7 @@ interface Secrets {
 	DATABASE_PASSWORD: string;
 }
 
-exports.main = async (event: any, context: any) => {
+exports.handler = async (event: any, context: any) => {
 	// Connect RDB
 	const dbCredentials = await getDBCredentials();
 	if (!dbCredentials) {
@@ -40,11 +40,11 @@ exports.main = async (event: any, context: any) => {
 	await redisClient.set('key', 'value');
 	await redisClient.disconnect();
 
-	const body = req.body;
-	const requestBody = body.events[0];
-	const senderId = requestBody.source.userId;
-	const requestType = requestBody.type;
-	const replyToken = requestBody.replyToken;
+	// const body = req.body;
+	// const requestBody = body.events[0];
+	// const senderId = requestBody.source.userId;
+	// const requestType = requestBody.type;
+	// const replyToken = requestBody.replyToken;
 
 	const cacheObject = {
 		status: 0,
@@ -59,30 +59,16 @@ exports.main = async (event: any, context: any) => {
 		console.log('NO ANY CACHE');
 	}
 
-	const digest = crypto
-		.createHmac('SHA256', channelSecret)
-		.update(Buffer.from(JSON.stringify(body)))
-		.digest('base64');
-	const signature = req.headers['x-line-signature'];
-	if (digest !== signature || typeof replyToken === 'undefined') {
-		res.status(403);
-		res.send('This request is invalid');
-		return;
-	}
-
-	const pool = mysql.createPool({
-		connectionLimit: 10,
-		host: dbHost,
-		user: dbUser,
-		password: dbPass,
-		database: dbName,
-		port: dbPort,
-		ssl: {
-			ca: ca,
-			key: key,
-			cert: cert,
-		},
-	});
+	// const digest = crypto
+	// 	.createHmac('SHA256', channelSecret)
+	// 	.update(Buffer.from(JSON.stringify(body)))
+	// 	.digest('base64');
+	// const signature = req.headers['x-line-signature'];
+	// if (digest !== signature || typeof replyToken === 'undefined') {
+	// 	res.status(403);
+	// 	res.send('This request is invalid');
+	// 	return;
+	// }
 
 	if (requestType === 'follow' || requestType === 'unfollow') {
 		switch (requestType) {
