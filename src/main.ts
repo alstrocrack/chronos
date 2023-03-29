@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { connect } from '@planetscale/database';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { createClient } from 'redis';
 import axios from 'axios';
 import crypto from 'crypto';
 
@@ -13,6 +14,7 @@ interface Secrets {
 }
 
 exports.main = async (event: any, context: any) => {
+	// Connect RDB
 	const dbCredentials = await getDBCredentials();
 	if (!dbCredentials) {
 		throw new Error('Not Found DB Credentials');
@@ -26,6 +28,17 @@ exports.main = async (event: any, context: any) => {
 
 	const conn = connect(config);
 	// const results = await conn.execute('select 1 from dual where 1=?', [1]);
+
+	// Connect Redis
+	// https://www.npmjs.com/package/redis
+	const redisClient = createClient();
+	redisClient.on('error', (err) => {
+		throw new Error(`Cannot connect Redis, ERROR: ${err}`);
+	});
+
+	await redisClient.connect();
+	await redisClient.set('key', 'value');
+	await redisClient.disconnect();
 
 	const body = req.body;
 	const requestBody = body.events[0];
