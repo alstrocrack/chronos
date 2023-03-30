@@ -1,7 +1,7 @@
 {
   "scripts": {
     "build": "tsc",
-    "deploy": "mv dist/main.js dist/index.js && zip -r index.zip dist/index.js && dotenv -- bash -c 'aws lambda update-function-code --function-name $FUNCTION_NAME --zip-file fileb://index.zip'"
+    "deploy": "mv dist/main.js dist/index.js && zip -j index.zip dist/index.js && dotenv -- bash -c 'aws lambda update-function-code --function-name $FUNCTION_NAME --zip-file fileb://index.zip'"
   },
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.299.0",
