@@ -1,7 +1,8 @@
 {
   "scripts": {
     "build": "tsc",
-    "deploy": "mv dist/main.js dist/index.js && zip -j index.zip dist/index.js && dotenv -- bash -c 'aws lambda update-function-code --function-name $FUNCTION_NAME --zip-file fileb://index.zip'"
+    "deploy": "mv dist/main.js dist/index.js && zip -j index.zip dist/index.js && dotenv -- bash -c 'aws lambda update-function-code --function-name $FUNCTION_NAME --zip-file fileb://index.zip'",
+    "deploy:modules": "if [ ! -e nodejs/node18 ]; then mkdir -p nodejs/node18; fi && cp -r node_modules nodejs/node18/node_modules && zip -r nodejs.zip nodejs && dotenv -- bash -c 'aws lambda publish-layer-version --layer-name $LAYER_NAME --zip-file fileb://nodejs.zip --compatible-runtimes nodejs18.x'"
   },
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.299.0",
