@@ -3,7 +3,6 @@ import { connect } from '@planetscale/database';
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { createClient } from 'redis';
 import axios from 'axios';
-import crypto from 'crypto';
 
 const regEx = /^((19|20)\d{2}\/)?(0[1-9]|[1-9]|1[0-2]|)\/(0[1-9]|[1-9]|[1-2]\d{1}|3[0-1])$/g;
 
@@ -13,7 +12,7 @@ interface Secrets {
 	DATABASE_PASSWORD: string;
 }
 
-exports.handler = async (event: any, context: any) => {
+export const handler = async (event: any, context: any) => {
 	// Connect RDB
 	const dbCredentials = await getDBCredentials();
 	if (!dbCredentials) {
