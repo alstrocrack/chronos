@@ -1,11 +1,15 @@
-zip it
+# Chronos
+
+## Release
+
+1. Compile TypeScript
 
 ```bash
-  zip -r function.zip dist
+npm run build
 ```
 
-release
+2. Deploy to AWS Lambda
 
 ```bash
-  aws lambda update-function-code --function-name chronos --zip-file fileb://function.zip
+npm run deploy
 ```
