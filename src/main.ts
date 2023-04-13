@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import { connect } from '@planetscale/database';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import { createClient } from 'redis';
 import axios from 'axios';
 
@@ -14,15 +13,10 @@ interface Secrets {
 
 export const handler = async (event: any, context: any) => {
 	// Connect RDB
-	const dbCredentials = await getDBCredentials();
-	if (!dbCredentials) {
-		throw new Error('Not Found DB Credentials');
-	}
-
 	const config = {
-		host: dbCredentials.DATABASE_HOST,
-		username: dbCredentials.DATABASE_USERNAME,
-		password: dbCredentials.DATABASE_PASSWORD,
+		host: process.env.DATABASE_HOST,
+		username: process.env.DATABASE_USERNAME,
+		password: process.env.DATABASE_PASSWORD,
 	};
 
 	const conn = connect(config);
@@ -36,7 +30,9 @@ export const handler = async (event: any, context: any) => {
 	});
 
 	await redisClient.connect();
-	await redisClient.set('key', 'value');
+	await redisClient.set('key', 'success!!');
+	const value = await redisClient.get('key');
+	console.log(`REDIS GETS: ${value}`);
 	await redisClient.disconnect();
 
 	// const body = req.body;
@@ -178,28 +174,6 @@ export const handler = async (event: any, context: any) => {
 
 	res.status(200).send('OK');
 };
-
-async function getDBCredentials(): Promise<Secrets | null> {
-	const secret_name = process.env.SECRET_NAME;
-	const client = new SecretsManagerClient({
-		region: 'ap-northeast-1',
-		credentials: { accessKeyId: process.env.ACCESS_KEY_ID!, secretAccessKey: process.env.SECRET_ACCESS_KEY! },
-	});
-
-	let response;
-	try {
-		response = await client.send(
-			new GetSecretValueCommand({
-				SecretId: secret_name,
-				VersionStage: 'AWSCURRENT', // VersionStage defaults to AWSCURRENT if unspecified
-			}),
-		);
-	} catch (error) {
-		throw new Error(`can't get the DB credentials: ${error}`);
-	}
-
-	return response?.SecretString ? JSON.parse(response.SecretString) : null;
-}
 
 async function registerUser(pool, senderId, channelAccessToken, replyToken) {
 	await axios({
