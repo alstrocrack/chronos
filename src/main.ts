@@ -28,6 +28,7 @@ export const handler = async (event: WebhookRequestBody, context: any) => {
 		switch (eventType) {
 			case 'follow':
 				registerEvent(lineClient, event, db);
+				break;
 		}
 	});
 };
@@ -40,8 +41,11 @@ const registerEvent = async (client: Client, event: FollowEvent, db: Connection)
 		throw new Error('FOLLOW: Invalid user token');
 	}
 	const userId: string = event.source.userId;
-	db.query<ResultSetHeader>(userInsertQuery, userId, (err, rows) => {
-		console.log(err, rows);
+
+	db.query<ResultSetHeader>(userInsertQuery, userId, (err, _rows) => {
+		if (err) {
+			throw new Error('HERE DB ERROR!!');
+		}
 	});
 	const message: Message = {
 		type: 'text',
