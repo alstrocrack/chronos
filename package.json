@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "build": "rm -r dist/ && tsc",
+    "build": "if [ -d dist ]; then rm -r dist/; fi && tsc && mkdir dist/{main,push} && mv dist/main.js dist/main/main.js && mv dist/push.js dist/push/push.js",
     "deploy": "if [ -e index.zip ]; then rm -r index.zip; fi && mv dist/main.js dist/index.mjs && zip -j index.zip dist/index.mjs && dotenv -- bash -c 'aws lambda update-function-code --function-name $FUNCTION_NAME --zip-file fileb://index.zip'",
     "deploy:modules": "if [ ! -e nodejs/node18 ]; then mkdir -p nodejs/node18; fi && cp -r node_modules nodejs/node18/node_modules && zip -r nodejs.zip nodejs && dotenv -- bash -c 'aws lambda publish-layer-version --layer-name $LAYER_NAME --zip-file fileb://nodejs.zip --compatible-runtimes nodejs18.x'"
   },
