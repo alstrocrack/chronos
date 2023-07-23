@@ -67,7 +67,10 @@ const handleEachEvent = async (event: any) => {
 			eventResult = await registerEvent(event);
 			break;
 		case "message":
-			replyEvent(event);
+			eventResult = await replyEvent(event);
+			break;
+		default:
+			eventResult = false;
 			break;
 	}
 	return eventResult;
@@ -106,16 +109,25 @@ const replyEvent = async (event: MessageEvent) => {
 	const replyToken = event.replyToken;
 	let isSuccess: boolean = true;
 
+	const status = await getUsersStatus(userId);
+
 	try {
-		switch (eventType) {
-			case chronosEventType.add:
-				await changeUserStatus(userStatus.add, userId);
-				await reply("名前と誕生日を入力してください", replyToken);
-			case chronosEventType.list:
-				const birthdays = await getUsersBirthdays(userId);
-				await reply(birthdays, replyToken);
-			default:
-				console.log("reach default");
+		switch (Number(status)) {
+			case userStatus.no:
+				switch (eventType) {
+					case chronosEventType.add:
+						await changeUserStatus(userStatus.add, userId);
+						await reply("名前と誕生日を入力してください", replyToken);
+					case chronosEventType.list:
+						const birthdays = await getUsersBirthdays(userId);
+						await reply(birthdays, replyToken);
+					case chronosEventType.delete:
+						await changeUserStatus(userStatus.delete, userId);
+						await reply("名前を入力してください", replyToken);
+					default:
+						console.log("reach default");
+						break;
+				}
 				break;
 		}
 	} catch (error) {
@@ -154,6 +166,15 @@ const getUsersBirthdays = async (userId: string) => {
 		usersBirthdays += `${birthday.name} ${birthday.month + birthday.date} ${22}歳\n`;
 	});
 	return usersBirthdays;
+};
+
+const getUsersStatus = async (userId: string) => {
+	const userStatusQuery = `
+		SELECT status FROM user_accounts WHERE id = ?;
+	`;
+	const connect = await mysql.createConnection(dbConfig);
+	const [rawData, _fieldPacket] = await connect.execute<RowDataPacket[]>(userStatusQuery, [userId]);
+	return rawData[0];
 };
 
 // general
