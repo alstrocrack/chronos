@@ -1,5 +1,5 @@
 import * as line from "@line/bot-sdk";
-import { WebhookRequestBody, FollowEvent, Message, MessageEvent } from "@line/bot-sdk";
+import { WebhookRequestBody, FollowEvent, Message, MessageEvent, MessageAPIResponseBase } from "@line/bot-sdk";
 import mysql from "mysql2/promise";
 import { ConnectionOptions, ResultSetHeader, RowDataPacket } from "mysql2";
 
@@ -27,6 +27,10 @@ const userStatus = {
 	add: 1,
 	delete: 2,
 };
+
+interface UserStatusData extends RowDataPacket {
+	status: number;
+}
 
 // handler
 export const handler = async (event: WebhookRequestBody, _context: any, callback: any) => {
@@ -109,15 +113,15 @@ const replyEvent = async (event: MessageEvent) => {
 	const replyToken = event.replyToken;
 	let isSuccess: boolean = true;
 
-	const status = await getUsersStatus(userId);
+	const status: number = await getUsersStatus(userId);
 
 	try {
-		switch (Number(status)) {
+		switch (status) {
 			case userStatus.no:
 				switch (eventType) {
 					case chronosEventType.add:
-						await changeUserStatus(userStatus.add, userId);
 						await reply("名前と誕生日を入力してください", replyToken);
+						await changeUserStatus(userStatus.add, userId);
 					case chronosEventType.list:
 						const birthdays = await getUsersBirthdays(userId);
 						await reply(birthdays, replyToken);
@@ -149,10 +153,11 @@ const registerNewUser = async (userId: string) => {
 
 const changeUserStatus = async (updatingStatus: number, userId: string) => {
 	const userUpdateQuery = `
-		UPDATE user_accounts SET status = ? WHERE user_id = ?;
+		UPDATE user_accounts SET status = ? WHERE id = ?;
 	`;
 	const connect = await mysql.createConnection(dbConfig);
-	return await connect.query<ResultSetHeader>(userUpdateQuery, [updatingStatus, userId]);
+	const [resultSetHeader, _fieldPacket] = await connect.execute<ResultSetHeader>(userUpdateQuery, [updatingStatus, userId]);
+	return resultSetHeader.affectedRows == 1 ? true : false;
 };
 
 const getUsersBirthdays = async (userId: string) => {
@@ -173,23 +178,16 @@ const getUsersStatus = async (userId: string) => {
 		SELECT status FROM user_accounts WHERE id = ?;
 	`;
 	const connect = await mysql.createConnection(dbConfig);
-	const [rawData, _fieldPacket] = await connect.execute<RowDataPacket[]>(userStatusQuery, [userId]);
-	return rawData[0];
+	const [status] = await connect.query<UserStatusData[]>(userStatusQuery, [userId]);
+	return status[0].status;
 };
 
 // general
 const reply = async (text: string, replyToken: string) => {
-	const lineClient = new line.Client(lineConfig);
+	const client = new line.Client(lineConfig);
 	const message: Message = {
 		type: "text",
 		text: text,
 	};
-	await lineClient
-		.replyMessage(replyToken, message)
-		.then((res) => {
-			console.log(res);
-		})
-		.catch((res) => {
-			console.log(res);
-		});
+	return await client.replyMessage(replyToken, message);
 };
