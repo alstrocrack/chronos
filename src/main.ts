@@ -23,9 +23,10 @@ const chronosEventType = {
 };
 
 const userStatus = {
-	no: 0,
-	add: 1,
-	delete: 2,
+	noStatus: 0,
+	addName: 1,
+	addDate: 2,
+	delete: 3,
 };
 
 interface UserStatusData extends RowDataPacket {
@@ -109,7 +110,7 @@ const replyEvent = async (event: MessageEvent) => {
 	if (!userId) {
 		throw new Error("user_id not found");
 	}
-	const eventType = event.message.type == "text" ? event.message.text : null;
+	const text = event.message.type == "text" ? event.message.text : null;
 	const replyToken = event.replyToken;
 	let isSuccess: boolean = true;
 
@@ -117,11 +118,11 @@ const replyEvent = async (event: MessageEvent) => {
 
 	try {
 		switch (status) {
-			case userStatus.no:
-				switch (eventType) {
+			case userStatus.noStatus:
+				switch (text) {
 					case chronosEventType.add:
 						await reply("名前と誕生日を入力してください", replyToken);
-						await changeUserStatus(userStatus.add, userId);
+						await changeUserStatus(userStatus.addName, userId);
 					case chronosEventType.list:
 						const birthdays = await getUsersBirthdays(userId);
 						await reply(birthdays, replyToken);
@@ -133,6 +134,12 @@ const replyEvent = async (event: MessageEvent) => {
 						break;
 				}
 				break;
+			case userStatus.addName:
+				await registerBirthdayName(event.source.userId, text);
+				await reply("誕生日を入力してください", replyToken);
+			case userStatus.addDate:
+				await registerBirthdayDate(event.source.userId, text);
+				await reply("誕生日を登録しました", replyToken);
 		}
 	} catch (error) {
 		console.log(error);
@@ -180,6 +187,38 @@ const getUsersStatus = async (userId: string) => {
 	const connect = await mysql.createConnection(dbConfig);
 	const [status] = await connect.query<UserStatusData[]>(userStatusQuery, [userId]);
 	return status[0].status;
+};
+
+const registerBirthdayName = async (userId: string | undefined, name: string | null) => {
+	const birthdayNameQuery = `
+		INSERT INTO birthdays (user_account_id, name, created_at, updated_at) VALUES (?, ?, Now(), Now());
+	`;
+	const connect = await mysql.createConnection(dbConfig);
+	const [status] = await connect.query<UserStatusData[]>(birthdayNameQuery, [userId, name]);
+	return status[0].status;
+};
+
+const registerBirthdayDate = async (userId: string | undefined, text: string | null) => {
+	if (!text) {
+		throw new Error("dateが未入力です");
+	}
+	const regEx = /^((19|20)\d{2}\/)?(0[1-9]|[1-9]|1[0-2]|)\/(0[1-9]|[1-9]|[1-2]\d{1}|3[0-1])$/g;
+	if (!text.match(regEx)) {
+		throw new Error("入力形式が違います");
+	}
+	const splittedDate = text.split("/");
+	const [year, month, date] =
+		splittedDate.length === 3 ? [splittedDate[0], splittedDate[1], splittedDate[2]] : [null, splittedDate[0], splittedDate[1]];
+	const findBirthdayQuery = `
+		SELECT id FROM birthdays WHERE user_account_id = ? ORDER BY created_at DESC LIMIT 1 FOR UPDATE;
+		`;
+	const connect = await mysql.createConnection(dbConfig);
+	const [id] = await connect.query<UserStatusData[]>(findBirthdayQuery, [userId]);
+
+	const inputBirthdayQuery = `
+		UPDATE birthdays SET year = ?, month = ?, date = ? WHERE id = ?;
+	`;
+	const [result] = await connect.execute<UserStatusData[]>(inputBirthdayQuery, [year, month, date, userId]);
 };
 
 // general
