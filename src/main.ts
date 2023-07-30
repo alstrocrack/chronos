@@ -42,25 +42,10 @@ export const handler = async (event: WebhookRequestBody, callback: any) => {
 		}),
 	);
 
-	const isFail = eventsResult.includes(false);
-
-	const response = isFail
-		? {
-				statusCode: "400",
-				body: JSON.stringify({ error: "Bad Request" }),
-				headers: {
-					"Content-Type": "application/json",
-				},
-		  }
-		: {
-				statusCode: "200",
-				headers: {
-					"Content-Type": "application/json",
-				},
-		  };
-
-	// Return response directly from Lambda
-	callback(null, response);
+	if (eventsResult.includes(false)) {
+		throw new Error("invalid request");
+	}
+	console.log("success");
 };
 
 const handleEachEvent = async (event: WebhookEvent) => {
@@ -71,7 +56,7 @@ const handleEachEvent = async (event: WebhookEvent) => {
 	} else if (event.type == "message") {
 		eventResult = await replyEvent(event);
 	} else {
-		console.log("ERROR: eventType not specified");
+		console.error("ERROR: eventType not specified");
 		eventResult = false;
 	}
 
@@ -82,16 +67,16 @@ const followEvent = async (event: FollowEvent) => {
 	let isSuccess: boolean = true;
 	const userId = event.source.userId;
 	if (!userId) {
-		console.log("ERROR: userId not found");
+		console.error("ERROR: userId not found");
 		return false;
 	}
 
 	await registerNewUser(userId).catch((res) => {
-		console.log(`ERROR: ${res}`);
+		console.error(`ERROR: ${res}`);
 		isSuccess = false;
 	});
 	await reply("Birthday Reminderを登録ありがとうございます！", event.replyToken).catch((res) => {
-		console.log(`ERROR: ${res}`);
+		console.error(`ERROR: ${res}`);
 		isSuccess = false;
 	});
 	return isSuccess;
@@ -101,13 +86,13 @@ const replyEvent = async (event: MessageEvent) => {
 	let isSuccess: boolean = true;
 	const userId = event.source.userId;
 	if (!userId) {
-		console.log("ERROR: userId not found");
+		console.error("ERROR: userId not found");
 		return false;
 	}
 
 	const replyToken = event.replyToken;
 	if (!replyToken) {
-		console.log("ERROR: replyToken not found");
+		console.error("ERROR: replyToken not found");
 		return false;
 	}
 
@@ -136,7 +121,7 @@ const replyEvent = async (event: MessageEvent) => {
 						await reply("誕生日を削除する人の名前を入力してください", replyToken);
 						break;
 					default:
-						console.log("ERROR: invalid chronosEventType");
+						console.error("ERROR: invalid chronosEventType");
 						throw new Error("invalid Chronos Event Type");
 				}
 				break;
@@ -149,11 +134,15 @@ const replyEvent = async (event: MessageEvent) => {
 				await reply("新しい誕生日を登録しました", replyToken);
 				break;
 			default:
-				console.log("ERROR: invalid user Status");
+				console.error("ERROR: invalid user Status");
 				throw new Error("invalid User Status");
 		}
 	} catch (error) {
-		isSuccess = false;
+		if (error instanceof Error) {
+			isSuccess = false;
+			console.error(`ERROR: ${error}`);
+			console.error(`BACKTRACE: ${error.stack}`);
+		}
 	}
 
 	return isSuccess;
@@ -162,7 +151,7 @@ const replyEvent = async (event: MessageEvent) => {
 // DB connetion
 const registerNewUser = async (userId: string) => {
 	const userInsertQuery = `
-		INSERT INTO user_accounts (user_id, created_at, updated_at) VALUES (?, Now(), Now());
+		INSERT INTO user_accounts (id, created_at, updated_at) VALUES (?, Now(), Now());
 	`;
 	const connect = await mysql.createConnection(dbConfig);
 	return connect.execute<ResultSetHeader>(userInsertQuery, [userId]);
@@ -178,10 +167,10 @@ const changeUserStatus = async (updatingStatus: number, userId: string) => {
 
 const getUsersBirthdays = async (userId: string) => {
 	const userBirthdaysQuery = `
-		SELECT name, year, month, date FROM birthdays WHERE user_id = ?;
+		SELECT name, year, month, date FROM birthdays WHERE user_account_id = ?;
 	`;
 	const connect = await mysql.createConnection(dbConfig);
-	const [birthdayInfomation] = await connect.execute<BirthdayInfomation[]>(userBirthdaysQuery, [userId]);
+	const [birthdayInfomation] = await connect.query<BirthdayInfomation[]>(userBirthdaysQuery, [userId]);
 	return buildBirthday(birthdayInfomation);
 };
 
@@ -228,21 +217,20 @@ const registerBirthdayDate = async (userId: string | undefined, text: string | n
 
 const buildBirthday = (birthdays: BirthdayInfomation[]) => {
 	return birthdays.reduce((accu, curr) => {
-		const yearPart = curr.year ? `${curr.year}年` : "";
-		let age: number | undefined;
-		if (curr.year) {
-			const currentDate = new Date();
-			age = currentDate.getFullYear() - curr.year;
-			if (curr.month > currentDate.getMonth()) {
+		if (!curr.year) {
+			return (accu += `${curr.month}月${curr.date}日\n`);
+		}
+		const year = `${curr.year}年`;
+		const currentTime = new Date();
+		let age: number = currentTime.getFullYear() - curr.year;
+		if (curr.month > currentTime.getMonth()) {
+			age--;
+		} else if (curr.month == currentTime.getMonth()) {
+			if (curr.date > currentTime.getDate()) {
 				age--;
-			} else if (curr.month == currentDate.getMonth()) {
-				if (curr.date > currentDate.getDate()) {
-					age--;
-				}
 			}
 		}
-		const agePart = age ? ` (${age}歳)` : "";
-		return (accu += `${yearPart}${curr.month}月${curr.date}日${agePart}`);
+		return (accu += `${year}${curr.month}月${curr.date}日 (${age}歳)`);
 	}, "誕生日の一覧\n");
 };
 
