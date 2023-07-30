@@ -2,7 +2,7 @@ import * as line from "@line/bot-sdk";
 import { WebhookRequestBody, FollowEvent, Message, MessageEvent, ClientConfig, WebhookEvent } from "@line/bot-sdk";
 import mysql from "mysql2/promise";
 import { ConnectionOptions, ResultSetHeader, RowDataPacket } from "mysql2";
-import { UserStatusData } from "./type";
+import { UserStatusData, BirthdayInfomation } from "./type";
 
 // Settings
 const lineConfig: ClientConfig = {
@@ -165,7 +165,7 @@ const registerNewUser = async (userId: string) => {
 		INSERT INTO user_accounts (user_id, created_at, updated_at) VALUES (?, Now(), Now());
 	`;
 	const connect = await mysql.createConnection(dbConfig);
-	return await connect.query<ResultSetHeader>(userInsertQuery, [userId]);
+	return connect.execute<ResultSetHeader>(userInsertQuery, [userId]);
 };
 
 const changeUserStatus = async (updatingStatus: number, userId: string) => {
@@ -173,21 +173,16 @@ const changeUserStatus = async (updatingStatus: number, userId: string) => {
 		UPDATE user_accounts SET status = ? WHERE id = ?;
 	`;
 	const connect = await mysql.createConnection(dbConfig);
-	const [resultSetHeader, _fieldPacket] = await connect.execute<ResultSetHeader>(userUpdateQuery, [updatingStatus, userId]);
-	return resultSetHeader.affectedRows == 1 ? true : false;
+	return connect.execute<ResultSetHeader>(userUpdateQuery, [updatingStatus, userId]);
 };
 
 const getUsersBirthdays = async (userId: string) => {
 	const userBirthdaysQuery = `
-		SELECT * SET status = ? WHERE user_id = ?;
+		SELECT name, year, month, date FROM birthdays WHERE user_id = ?;
 	`;
 	const connect = await mysql.createConnection(dbConfig);
-	const [rawData, _fieldPacket] = await connect.execute<RowDataPacket[]>(userBirthdaysQuery, [userId]);
-	let usersBirthdays: string = "誕生日の一覧\n";
-	rawData.forEach((birthday) => {
-		usersBirthdays += `${birthday.name} ${birthday.month + birthday.date} ${22}歳\n`;
-	});
-	return usersBirthdays;
+	const [birthdayInfomation] = await connect.execute<BirthdayInfomation[]>(userBirthdaysQuery, [userId]);
+	return buildBirthday(birthdayInfomation);
 };
 
 const getUsersStatus = async (userId: string) => {
@@ -229,6 +224,26 @@ const registerBirthdayDate = async (userId: string | undefined, text: string | n
 		UPDATE birthdays SET year = ?, month = ?, date = ? WHERE id = ?;
 	`;
 	const [result] = await connect.execute<UserStatusData[]>(inputBirthdayQuery, [year, month, date, userId]);
+};
+
+const buildBirthday = (birthdays: BirthdayInfomation[]) => {
+	return birthdays.reduce((accu, curr) => {
+		const yearPart = curr.year ? `${curr.year}年` : "";
+		let age: number | undefined;
+		if (curr.year) {
+			const currentDate = new Date();
+			age = currentDate.getFullYear() - curr.year;
+			if (curr.month > currentDate.getMonth()) {
+				age--;
+			} else if (curr.month == currentDate.getMonth()) {
+				if (curr.date > currentDate.getDate()) {
+					age--;
+				}
+			}
+		}
+		const agePart = age ? ` (${age}歳)` : "";
+		return (accu += `${yearPart}${curr.month}月${curr.date}日${agePart}`);
+	}, "誕生日の一覧\n");
 };
 
 // general
