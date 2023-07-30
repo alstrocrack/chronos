@@ -1,9 +1,11 @@
 import * as line from "@line/bot-sdk";
-import { WebhookRequestBody, FollowEvent, Message, MessageEvent, MessageAPIResponseBase } from "@line/bot-sdk";
+import { WebhookRequestBody, FollowEvent, Message, MessageEvent, ClientConfig, WebhookEvent } from "@line/bot-sdk";
 import mysql from "mysql2/promise";
 import { ConnectionOptions, ResultSetHeader, RowDataPacket } from "mysql2";
+import { UserStatusData, BirthdayInfomation } from "./type";
 
-const lineConfig = {
+// Settings
+const lineConfig: ClientConfig = {
 	channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN!,
 	channelSecret: process.env.CHANNEL_SECRET!,
 };
@@ -16,127 +18,131 @@ const dbConfig: ConnectionOptions = {
 	port: Number(process.env.DB_PORT!),
 };
 
-const chronosEventType = {
-	add: "誕生日の追加",
-	list: "誕生日の一覧",
+// constants
+const CHRONOS_EVENT_TYPE = {
+	adding: "誕生日の追加",
+	listing: "誕生日の一覧",
 	delete: "誕生日の削除",
 };
 
-const userStatus = {
-	no: 0,
-	add: 1,
-	delete: 2,
+const CHRONOS_USER_STATUS = {
+	noStatus: 0,
+	addName: 1,
+	addDate: 2,
+	delete: 3,
 };
 
-interface UserStatusData extends RowDataPacket {
-	status: number;
-}
-
 // handler
-export const handler = async (event: WebhookRequestBody, _context: any, callback: any) => {
-	const events: Array<any> = event.events;
+export const handler = async (event: WebhookRequestBody, callback: any) => {
+	const events: Array<WebhookEvent> = event.events;
 
-	const results = await Promise.all(
+	const eventsResult: boolean[] = await Promise.all(
 		events.map(async (event) => {
 			return await handleEachEvent(event);
 		}),
 	);
 
-	const isFail = results.includes(false);
-
-	const response = isFail
-		? {
-				statusCode: "400",
-				body: JSON.stringify({ error: "Bad Request" }),
-				headers: {
-					"Content-Type": "application/json",
-				},
-		  }
-		: {
-				statusCode: "200",
-				headers: {
-					"Content-Type": "application/json",
-				},
-		  };
-
-	callback(null, response);
+	if (eventsResult.includes(false)) {
+		throw new Error("invalid request");
+	}
+	console.log("success");
 };
 
-const handleEachEvent = async (event: any) => {
-	const eventType: string = event.type;
+const handleEachEvent = async (event: WebhookEvent) => {
 	let eventResult: boolean = true;
 
-	switch (eventType) {
-		case "follow":
-			eventResult = await registerEvent(event);
-			break;
-		case "message":
-			eventResult = await replyEvent(event);
-			break;
-		default:
-			eventResult = false;
-			break;
+	if (event.type == "follow") {
+		eventResult = await followEvent(event);
+	} else if (event.type == "message") {
+		eventResult = await replyEvent(event);
+	} else {
+		console.error("ERROR: eventType not specified");
+		eventResult = false;
 	}
+
 	return eventResult;
 };
 
-// event handler
-const registerEvent = async (event: FollowEvent) => {
-	if (!event.source.userId) {
-		throw new Error("FOLLOW: Invalid user token");
+const followEvent = async (event: FollowEvent) => {
+	let isSuccess: boolean = true;
+	const userId = event.source.userId;
+	if (!userId) {
+		console.error("ERROR: userId not found");
+		return false;
 	}
-	let result: boolean = true;
-	const userId: string = event.source.userId;
-	await registerNewUser(userId)
-		.then((res) => {
-			console.log(res);
-		})
-		.catch((res) => {
-			result = false;
-		});
-	await reply("Birthday Reminderを登録ありがとうございます！", event.replyToken)
-		.then((res) => {
-			console.log(res);
-		})
-		.catch((res) => {
-			result = false;
-		});
-	return result;
+
+	await registerNewUser(userId).catch((res) => {
+		console.error(`ERROR: ${res}`);
+		isSuccess = false;
+	});
+	await reply("Birthday Reminderを登録ありがとうございます！", event.replyToken).catch((res) => {
+		console.error(`ERROR: ${res}`);
+		isSuccess = false;
+	});
+	return isSuccess;
 };
 
 const replyEvent = async (event: MessageEvent) => {
+	let isSuccess: boolean = true;
 	const userId = event.source.userId;
 	if (!userId) {
-		throw new Error("user_id not found");
+		console.error("ERROR: userId not found");
+		return false;
 	}
-	const eventType = event.message.type == "text" ? event.message.text : null;
-	const replyToken = event.replyToken;
-	let isSuccess: boolean = true;
 
-	const status: number = await getUsersStatus(userId);
+	const replyToken = event.replyToken;
+	if (!replyToken) {
+		console.error("ERROR: replyToken not found");
+		return false;
+	}
+
+	if (event.message.type != "text") {
+		// Don't process anymore
+		return true;
+	}
+	const text = event.message.text;
+
+	const userStatus: number = await getUsersStatus(userId);
 
 	try {
-		switch (status) {
-			case userStatus.no:
-				switch (eventType) {
-					case chronosEventType.add:
-						await reply("名前と誕生日を入力してください", replyToken);
-						await changeUserStatus(userStatus.add, userId);
-					case chronosEventType.list:
+		switch (userStatus) {
+			case CHRONOS_USER_STATUS.noStatus:
+				switch (text) {
+					case CHRONOS_EVENT_TYPE.adding:
+						await changeUserStatus(CHRONOS_USER_STATUS.addName, userId);
+						await reply("誕生日を登録する人の名前を入力してください", replyToken);
+						break;
+					case CHRONOS_EVENT_TYPE.listing:
 						const birthdays = await getUsersBirthdays(userId);
 						await reply(birthdays, replyToken);
-					case chronosEventType.delete:
-						await changeUserStatus(userStatus.delete, userId);
-						await reply("名前を入力してください", replyToken);
-					default:
-						console.log("reach default");
 						break;
+					case CHRONOS_EVENT_TYPE.delete:
+						await changeUserStatus(CHRONOS_USER_STATUS.delete, userId);
+						await reply("誕生日を削除する人の名前を入力してください", replyToken);
+						break;
+					default:
+						console.error("ERROR: invalid chronosEventType");
+						throw new Error("invalid Chronos Event Type");
 				}
 				break;
+			case CHRONOS_USER_STATUS.addName:
+				await registerBirthdayName(event.source.userId, text);
+				await reply("誕生日を登録する人の誕生日を入力してください", replyToken);
+				break;
+			case CHRONOS_USER_STATUS.addDate:
+				await registerBirthdayDate(event.source.userId, text);
+				await reply("新しい誕生日を登録しました", replyToken);
+				break;
+			default:
+				console.error("ERROR: invalid user Status");
+				throw new Error("invalid User Status");
 		}
 	} catch (error) {
-		console.log(error);
-		isSuccess = false;
+		if (error instanceof Error) {
+			isSuccess = false;
+			console.error(`ERROR: ${error}`);
+			console.error(`BACKTRACE: ${error.stack}`);
+		}
 	}
 
 	return isSuccess;
@@ -145,10 +151,10 @@ const replyEvent = async (event: MessageEvent) => {
 // DB connetion
 const registerNewUser = async (userId: string) => {
 	const userInsertQuery = `
-		INSERT INTO user_accounts (user_id, created_at, updated_at) VALUES (?, Now(), Now());
+		INSERT INTO user_accounts (id, created_at, updated_at) VALUES (?, Now(), Now());
 	`;
 	const connect = await mysql.createConnection(dbConfig);
-	return await connect.query<ResultSetHeader>(userInsertQuery, [userId]);
+	return connect.execute<ResultSetHeader>(userInsertQuery, [userId]);
 };
 
 const changeUserStatus = async (updatingStatus: number, userId: string) => {
@@ -156,21 +162,16 @@ const changeUserStatus = async (updatingStatus: number, userId: string) => {
 		UPDATE user_accounts SET status = ? WHERE id = ?;
 	`;
 	const connect = await mysql.createConnection(dbConfig);
-	const [resultSetHeader, _fieldPacket] = await connect.execute<ResultSetHeader>(userUpdateQuery, [updatingStatus, userId]);
-	return resultSetHeader.affectedRows == 1 ? true : false;
+	return connect.execute<ResultSetHeader>(userUpdateQuery, [updatingStatus, userId]);
 };
 
 const getUsersBirthdays = async (userId: string) => {
 	const userBirthdaysQuery = `
-		SELECT * SET status = ? WHERE user_id = ?;
+		SELECT name, year, month, date FROM birthdays WHERE user_account_id = ?;
 	`;
 	const connect = await mysql.createConnection(dbConfig);
-	const [rawData, _fieldPacket] = await connect.execute<RowDataPacket[]>(userBirthdaysQuery, [userId]);
-	let usersBirthdays: string = "誕生日の一覧\n";
-	rawData.forEach((birthday) => {
-		usersBirthdays += `${birthday.name} ${birthday.month + birthday.date} ${22}歳\n`;
-	});
-	return usersBirthdays;
+	const [birthdayInfomation] = await connect.query<BirthdayInfomation[]>(userBirthdaysQuery, [userId]);
+	return buildBirthday(birthdayInfomation);
 };
 
 const getUsersStatus = async (userId: string) => {
@@ -180,6 +181,57 @@ const getUsersStatus = async (userId: string) => {
 	const connect = await mysql.createConnection(dbConfig);
 	const [status] = await connect.query<UserStatusData[]>(userStatusQuery, [userId]);
 	return status[0].status;
+};
+
+const registerBirthdayName = async (userId: string | undefined, name: string | null) => {
+	const birthdayNameQuery = `
+		INSERT INTO birthdays (user_account_id, name, created_at, updated_at) VALUES (?, ?, Now(), Now());
+	`;
+	const connect = await mysql.createConnection(dbConfig);
+	const [status] = await connect.query<UserStatusData[]>(birthdayNameQuery, [userId, name]);
+	return status[0].status;
+};
+
+const registerBirthdayDate = async (userId: string | undefined, text: string | null) => {
+	if (!text) {
+		throw new Error("dateが未入力です");
+	}
+	const regEx = /^((19|20)\d{2}\/)?(0[1-9]|[1-9]|1[0-2]|)\/(0[1-9]|[1-9]|[1-2]\d{1}|3[0-1])$/g;
+	if (!text.match(regEx)) {
+		throw new Error("入力形式が違います");
+	}
+	const splittedDate = text.split("/");
+	const [year, month, date] =
+		splittedDate.length === 3 ? [splittedDate[0], splittedDate[1], splittedDate[2]] : [null, splittedDate[0], splittedDate[1]];
+	const findBirthdayQuery = `
+		SELECT id FROM birthdays WHERE user_account_id = ? ORDER BY created_at DESC LIMIT 1 FOR UPDATE;
+		`;
+	const connect = await mysql.createConnection(dbConfig);
+	const [id] = await connect.query<UserStatusData[]>(findBirthdayQuery, [userId]);
+
+	const inputBirthdayQuery = `
+		UPDATE birthdays SET year = ?, month = ?, date = ? WHERE id = ?;
+	`;
+	const [result] = await connect.execute<UserStatusData[]>(inputBirthdayQuery, [year, month, date, userId]);
+};
+
+const buildBirthday = (birthdays: BirthdayInfomation[]) => {
+	return birthdays.reduce((accu, curr) => {
+		if (!curr.year) {
+			return (accu += `${curr.month}月${curr.date}日\n`);
+		}
+		const year = `${curr.year}年`;
+		const currentTime = new Date();
+		let age: number = currentTime.getFullYear() - curr.year;
+		if (curr.month > currentTime.getMonth()) {
+			age--;
+		} else if (curr.month == currentTime.getMonth()) {
+			if (curr.date > currentTime.getDate()) {
+				age--;
+			}
+		}
+		return (accu += `${year}${curr.month}月${curr.date}日 (${age}歳)`);
+	}, "誕生日の一覧\n");
 };
 
 // general
