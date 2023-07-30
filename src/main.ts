@@ -218,7 +218,7 @@ const registerBirthdayDate = async (userId: string | undefined, text: string | n
 const buildBirthday = (birthdays: BirthdayInfomation[]) => {
 	return birthdays.reduce((accu, curr) => {
 		if (!curr.year) {
-			return (accu += `${curr.month}月${curr.date}日\n`);
+			return (accu += `${curr.name}: ${curr.month}月${curr.date}日\n`);
 		}
 		const year = `${curr.year}年`;
 		const currentTime = new Date();
@@ -230,7 +230,7 @@ const buildBirthday = (birthdays: BirthdayInfomation[]) => {
 				age--;
 			}
 		}
-		return (accu += `${year}${curr.month}月${curr.date}日 (${age}歳)`);
+		return (accu += `${curr.name}: ${year}${curr.month}月${curr.date}日 (${age}歳)\n`);
 	}, "誕生日の一覧\n");
 };
 
