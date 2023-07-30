@@ -216,7 +216,7 @@ const registerBirthdayDate = async (userId: string | undefined, text: string | n
 };
 
 const buildBirthday = (birthdays: BirthdayInfomation[]) => {
-	return birthdays.reduce((accu, curr) => {
+	const list = birthdays.reduce((accu, curr) => {
 		if (!curr.year) {
 			return (accu += `${curr.name}: ${curr.month}月${curr.date}日\n`);
 		}
@@ -232,6 +232,7 @@ const buildBirthday = (birthdays: BirthdayInfomation[]) => {
 		}
 		return (accu += `${curr.name}: ${year}${curr.month}月${curr.date}日 (${age}歳)\n`);
 	}, "誕生日の一覧\n");
+	return list.replace(/\n$/, "");
 };
 
 // general
