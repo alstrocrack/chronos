@@ -1,9 +1,11 @@
 import * as line from "@line/bot-sdk";
-import { WebhookRequestBody, FollowEvent, Message, MessageEvent, MessageAPIResponseBase } from "@line/bot-sdk";
+import { WebhookRequestBody, FollowEvent, Message, MessageEvent, ClientConfig, WebhookEvent } from "@line/bot-sdk";
 import mysql from "mysql2/promise";
 import { ConnectionOptions, ResultSetHeader, RowDataPacket } from "mysql2";
+import { UserStatusData } from "./type";
 
-const lineConfig = {
+// Settings
+const lineConfig: ClientConfig = {
 	channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN!,
 	channelSecret: process.env.CHANNEL_SECRET!,
 };
@@ -16,34 +18,31 @@ const dbConfig: ConnectionOptions = {
 	port: Number(process.env.DB_PORT!),
 };
 
-const chronosEventType = {
-	add: "誕生日の追加",
-	list: "誕生日の一覧",
+// constants
+const CHRONOS_EVENT_TYPE = {
+	adding: "誕生日の追加",
+	listing: "誕生日の一覧",
 	delete: "誕生日の削除",
 };
 
-const userStatus = {
+const CHRONOS_USER_STATUS = {
 	noStatus: 0,
 	addName: 1,
 	addDate: 2,
 	delete: 3,
 };
 
-interface UserStatusData extends RowDataPacket {
-	status: number;
-}
-
 // handler
-export const handler = async (event: WebhookRequestBody, _context: any, callback: any) => {
-	const events: Array<any> = event.events;
+export const handler = async (event: WebhookRequestBody, callback: any) => {
+	const events: Array<WebhookEvent> = event.events;
 
-	const results = await Promise.all(
+	const eventsResult: boolean[] = await Promise.all(
 		events.map(async (event) => {
 			return await handleEachEvent(event);
 		}),
 	);
 
-	const isFail = results.includes(false);
+	const isFail = eventsResult.includes(false);
 
 	const response = isFail
 		? {
@@ -60,89 +59,100 @@ export const handler = async (event: WebhookRequestBody, _context: any, callback
 				},
 		  };
 
+	// Return response directly from Lambda
 	callback(null, response);
 };
 
-const handleEachEvent = async (event: any) => {
-	const eventType: string = event.type;
+const handleEachEvent = async (event: WebhookEvent) => {
 	let eventResult: boolean = true;
 
-	switch (eventType) {
-		case "follow":
-			eventResult = await registerEvent(event);
-			break;
-		case "message":
-			eventResult = await replyEvent(event);
-			break;
-		default:
-			eventResult = false;
-			break;
+	if (event.type == "follow") {
+		eventResult = await followEvent(event);
+	} else if (event.type == "message") {
+		eventResult = await replyEvent(event);
+	} else {
+		console.log("ERROR: eventType not specified");
+		eventResult = false;
 	}
+
 	return eventResult;
 };
 
-// event handler
-const registerEvent = async (event: FollowEvent) => {
-	if (!event.source.userId) {
-		throw new Error("FOLLOW: Invalid user token");
+const followEvent = async (event: FollowEvent) => {
+	let isSuccess: boolean = true;
+	const userId = event.source.userId;
+	if (!userId) {
+		console.log("ERROR: userId not found");
+		return false;
 	}
-	let result: boolean = true;
-	const userId: string = event.source.userId;
-	await registerNewUser(userId)
-		.then((res) => {
-			console.log(res);
-		})
-		.catch((res) => {
-			result = false;
-		});
-	await reply("Birthday Reminderを登録ありがとうございます！", event.replyToken)
-		.then((res) => {
-			console.log(res);
-		})
-		.catch((res) => {
-			result = false;
-		});
-	return result;
+
+	await registerNewUser(userId).catch((res) => {
+		console.log(`ERROR: ${res}`);
+		isSuccess = false;
+	});
+	await reply("Birthday Reminderを登録ありがとうございます！", event.replyToken).catch((res) => {
+		console.log(`ERROR: ${res}`);
+		isSuccess = false;
+	});
+	return isSuccess;
 };
 
 const replyEvent = async (event: MessageEvent) => {
+	let isSuccess: boolean = true;
 	const userId = event.source.userId;
 	if (!userId) {
-		throw new Error("user_id not found");
+		console.log("ERROR: userId not found");
+		return false;
 	}
-	const text = event.message.type == "text" ? event.message.text : null;
-	const replyToken = event.replyToken;
-	let isSuccess: boolean = true;
 
-	const status: number = await getUsersStatus(userId);
+	const replyToken = event.replyToken;
+	if (!replyToken) {
+		console.log("ERROR: replyToken not found");
+		return false;
+	}
+
+	if (event.message.type != "text") {
+		// Don't process anymore
+		return true;
+	}
+	const text = event.message.text;
+
+	const userStatus: number = await getUsersStatus(userId);
 
 	try {
-		switch (status) {
-			case userStatus.noStatus:
+		switch (userStatus) {
+			case CHRONOS_USER_STATUS.noStatus:
 				switch (text) {
-					case chronosEventType.add:
-						await reply("名前と誕生日を入力してください", replyToken);
-						await changeUserStatus(userStatus.addName, userId);
-					case chronosEventType.list:
+					case CHRONOS_EVENT_TYPE.adding:
+						await changeUserStatus(CHRONOS_USER_STATUS.addName, userId);
+						await reply("誕生日を登録する人の名前を入力してください", replyToken);
+						break;
+					case CHRONOS_EVENT_TYPE.listing:
 						const birthdays = await getUsersBirthdays(userId);
 						await reply(birthdays, replyToken);
-					case chronosEventType.delete:
-						await changeUserStatus(userStatus.delete, userId);
-						await reply("名前を入力してください", replyToken);
-					default:
-						console.log("reach default");
 						break;
+					case CHRONOS_EVENT_TYPE.delete:
+						await changeUserStatus(CHRONOS_USER_STATUS.delete, userId);
+						await reply("誕生日を削除する人の名前を入力してください", replyToken);
+						break;
+					default:
+						console.log("ERROR: invalid chronosEventType");
+						throw new Error("invalid Chronos Event Type");
 				}
 				break;
-			case userStatus.addName:
+			case CHRONOS_USER_STATUS.addName:
 				await registerBirthdayName(event.source.userId, text);
-				await reply("誕生日を入力してください", replyToken);
-			case userStatus.addDate:
+				await reply("誕生日を登録する人の誕生日を入力してください", replyToken);
+				break;
+			case CHRONOS_USER_STATUS.addDate:
 				await registerBirthdayDate(event.source.userId, text);
-				await reply("誕生日を登録しました", replyToken);
+				await reply("新しい誕生日を登録しました", replyToken);
+				break;
+			default:
+				console.log("ERROR: invalid user Status");
+				throw new Error("invalid User Status");
 		}
 	} catch (error) {
-		console.log(error);
 		isSuccess = false;
 	}
 
