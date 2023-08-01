@@ -1,8 +1,10 @@
 import * as line from "@line/bot-sdk";
 import { WebhookRequestBody, FollowEvent, Message, MessageEvent, ClientConfig, WebhookEvent } from "@line/bot-sdk";
 import mysql from "mysql2/promise";
-import { ConnectionOptions, ResultSetHeader, RowDataPacket } from "mysql2";
-import { UserStatusData, BirthdayInfomation } from "./type";
+import { ConnectionOptions, ResultSetHeader } from "mysql2";
+import { createClient, RedisClientType } from "redis";
+
+import { UserStatusData, BirthdayInfomation, userCache } from "./type";
 
 // Settings
 const lineConfig: ClientConfig = {
@@ -18,6 +20,13 @@ const dbConfig: ConnectionOptions = {
 	port: Number(process.env.DB_PORT!),
 };
 
+const redisConfig = {
+	socket: {
+		host: process.env.REDIS_HOST,
+		port: Number(process.env.REDIS_PORT),
+	},
+};
+
 // constants
 const CHRONOS_EVENT_TYPE = {
 	adding: "誕生日の追加",
@@ -26,7 +35,6 @@ const CHRONOS_EVENT_TYPE = {
 };
 
 const CHRONOS_USER_STATUS = {
-	noStatus: 0,
 	addName: 1,
 	addDate: 2,
 	delete: 3,
@@ -102,40 +110,48 @@ const replyEvent = async (event: MessageEvent) => {
 	}
 	const text = event.message.text;
 
-	const userStatus: number = await getUsersStatus(userId);
+	const redisClient: RedisClientType = createClient(redisConfig);
+	await redisClient.connect();
+
+	const userStatus = await redisClient.hGet(userId, "status");
 
 	try {
-		switch (userStatus) {
-			case CHRONOS_USER_STATUS.noStatus:
-				switch (text) {
-					case CHRONOS_EVENT_TYPE.adding:
-						await changeUserStatus(CHRONOS_USER_STATUS.addName, userId);
-						await reply("誕生日を登録する人の名前を入力してください", replyToken);
-						break;
-					case CHRONOS_EVENT_TYPE.listing:
-						const birthdays = await getUsersBirthdays(userId);
-						await reply(birthdays, replyToken);
-						break;
-					case CHRONOS_EVENT_TYPE.delete:
-						await changeUserStatus(CHRONOS_USER_STATUS.delete, userId);
-						await reply("誕生日を削除する人の名前を入力してください", replyToken);
-						break;
-					default:
-						console.error("ERROR: invalid chronosEventType");
-						throw new Error("invalid Chronos Event Type");
-				}
-				break;
-			case CHRONOS_USER_STATUS.addName:
-				await registerBirthdayName(event.source.userId, text);
-				await reply("誕生日を登録する人の誕生日を入力してください", replyToken);
-				break;
-			case CHRONOS_USER_STATUS.addDate:
-				await registerBirthdayDate(event.source.userId, text);
-				await reply("新しい誕生日を登録しました", replyToken);
-				break;
-			default:
-				console.error("ERROR: invalid user Status");
-				throw new Error("invalid User Status");
+		// NOTE: statusがあれば登録か削除の最中
+		if (userStatus) {
+			// NOTE: 暫定対応
+			switch (Number(userStatus)) {
+				case CHRONOS_USER_STATUS.addName:
+					await registerBirthdayName(event.source.userId, text);
+					await reply("誕生日を登録する人の誕生日を入力してください", replyToken);
+					break;
+				case CHRONOS_USER_STATUS.addDate:
+					await registerBirthdayDate(event.source.userId, text);
+					await reply("新しい誕生日を登録しました", replyToken);
+					break;
+				case CHRONOS_USER_STATUS.delete:
+					await registerBirthdayName(event.source.userId, text);
+					await reply("削除しました", replyToken);
+					break;
+				default:
+					console.error("ERROR: invalid user Status");
+					throw new Error("invalid User Status");
+			}
+		} else {
+			switch (text) {
+				case CHRONOS_EVENT_TYPE.adding:
+					await reply("誕生日を登録する人の名前を入力してください", replyToken);
+					break;
+				case CHRONOS_EVENT_TYPE.listing:
+					const birthdays = await getUsersBirthdays(userId);
+					await reply(birthdays, replyToken);
+					break;
+				case CHRONOS_EVENT_TYPE.delete:
+					await reply("誕生日を削除する人の名前を入力してください", replyToken);
+					break;
+				default:
+					console.error("ERROR: invalid chronosEventType");
+					throw new Error("invalid Chronos Event Type");
+			}
 		}
 	} catch (error) {
 		if (error instanceof Error) {
@@ -157,14 +173,6 @@ const registerNewUser = async (userId: string) => {
 	return connect.execute<ResultSetHeader>(userInsertQuery, [userId]);
 };
 
-const changeUserStatus = async (updatingStatus: number, userId: string) => {
-	const userUpdateQuery = `
-		UPDATE user_accounts SET status = ? WHERE id = ?;
-	`;
-	const connect = await mysql.createConnection(dbConfig);
-	return connect.execute<ResultSetHeader>(userUpdateQuery, [updatingStatus, userId]);
-};
-
 const getUsersBirthdays = async (userId: string) => {
 	const userBirthdaysQuery = `
 		SELECT name, year, month, date FROM birthdays WHERE user_account_id = ?;
@@ -172,15 +180,6 @@ const getUsersBirthdays = async (userId: string) => {
 	const connect = await mysql.createConnection(dbConfig);
 	const [birthdayInfomation] = await connect.query<BirthdayInfomation[]>(userBirthdaysQuery, [userId]);
 	return buildBirthday(birthdayInfomation);
-};
-
-const getUsersStatus = async (userId: string) => {
-	const userStatusQuery = `
-		SELECT status FROM user_accounts WHERE id = ?;
-	`;
-	const connect = await mysql.createConnection(dbConfig);
-	const [status] = await connect.query<UserStatusData[]>(userStatusQuery, [userId]);
-	return status[0].status;
 };
 
 const registerBirthdayName = async (userId: string | undefined, name: string | null) => {

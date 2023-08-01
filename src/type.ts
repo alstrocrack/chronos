@@ -10,3 +10,9 @@ export interface BirthdayInfomation extends RowDataPacket {
 	month: number;
 	date: number;
 }
+
+export interface userCache {
+	id: string;
+	name: string | null;
+	status: number;
+}
