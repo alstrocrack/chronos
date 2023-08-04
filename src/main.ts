@@ -4,7 +4,7 @@ import mysql from "mysql2/promise";
 import { ConnectionOptions, ResultSetHeader } from "mysql2";
 import { createClient, RedisClientType } from "redis";
 
-import { UserStatusData, BirthdayInfomation, userCache } from "./type";
+import { BirthdayInfomation } from "./type";
 
 // Settings
 const lineConfig: ClientConfig = {
@@ -32,6 +32,7 @@ const CHRONOS_EVENT_TYPE = {
 	adding: "誕生日の追加",
 	listing: "誕生日の一覧",
 	delete: "誕生日の削除",
+	cancel: "キャンセル",
 };
 
 const CHRONOS_USER_STATUS = {
@@ -118,19 +119,21 @@ const replyEvent = async (event: MessageEvent) => {
 	try {
 		// NOTE: statusがあれば登録か削除の最中
 		if (userStatus) {
-			// NOTE: 暫定対応
 			switch (Number(userStatus)) {
 				case CHRONOS_USER_STATUS.addName:
-					await registerBirthdayName(event.source.userId, text);
+					await redisClient.hSet(userId, "status", CHRONOS_USER_STATUS.addDate);
+					await redisClient.hSet(userId, "name", text);
 					await reply("誕生日を登録する人の誕生日を入力してください", replyToken);
 					break;
 				case CHRONOS_USER_STATUS.addDate:
-					await registerBirthdayDate(event.source.userId, text);
+					const name = await redisClient.hGet(userId, "name");
+					await redisClient.del(userId);
+					await registerBirthdayDate(userId, name, text);
 					await reply("新しい誕生日を登録しました", replyToken);
 					break;
 				case CHRONOS_USER_STATUS.delete:
-					await registerBirthdayName(event.source.userId, text);
 					await reply("削除しました", replyToken);
+					await redisClient.del(userId);
 					break;
 				default:
 					console.error("ERROR: invalid user Status");
@@ -139,6 +142,7 @@ const replyEvent = async (event: MessageEvent) => {
 		} else {
 			switch (text) {
 				case CHRONOS_EVENT_TYPE.adding:
+					redisClient.hSet(userId, "status", CHRONOS_USER_STATUS.addName);
 					await reply("誕生日を登録する人の名前を入力してください", replyToken);
 					break;
 				case CHRONOS_EVENT_TYPE.listing:
@@ -146,8 +150,12 @@ const replyEvent = async (event: MessageEvent) => {
 					await reply(birthdays, replyToken);
 					break;
 				case CHRONOS_EVENT_TYPE.delete:
+					redisClient.hSet(userId, "status", CHRONOS_USER_STATUS.delete);
 					await reply("誕生日を削除する人の名前を入力してください", replyToken);
 					break;
+				case CHRONOS_EVENT_TYPE.cancel:
+					await redisClient.del(userId);
+					await reply("キャンセルしました", replyToken);
 				default:
 					console.error("ERROR: invalid chronosEventType");
 					throw new Error("invalid Chronos Event Type");
@@ -161,6 +169,8 @@ const replyEvent = async (event: MessageEvent) => {
 		}
 	}
 
+	await redisClient.disconnect();
+
 	return isSuccess;
 };
 
@@ -170,7 +180,9 @@ const registerNewUser = async (userId: string) => {
 		INSERT INTO user_accounts (id, created_at, updated_at) VALUES (?, Now(), Now());
 	`;
 	const connect = await mysql.createConnection(dbConfig);
-	return connect.execute<ResultSetHeader>(userInsertQuery, [userId]);
+	await connect.execute<ResultSetHeader>(userInsertQuery, [userId]);
+	await connect.end();
+	return;
 };
 
 const getUsersBirthdays = async (userId: string) => {
@@ -179,39 +191,34 @@ const getUsersBirthdays = async (userId: string) => {
 	`;
 	const connect = await mysql.createConnection(dbConfig);
 	const [birthdayInfomation] = await connect.query<BirthdayInfomation[]>(userBirthdaysQuery, [userId]);
+	await connect.end();
 	return buildBirthday(birthdayInfomation);
 };
 
-const registerBirthdayName = async (userId: string | undefined, name: string | null) => {
-	const birthdayNameQuery = `
-		INSERT INTO birthdays (user_account_id, name, created_at, updated_at) VALUES (?, ?, Now(), Now());
-	`;
-	const connect = await mysql.createConnection(dbConfig);
-	const [status] = await connect.query<UserStatusData[]>(birthdayNameQuery, [userId, name]);
-	return status[0].status;
-};
-
-const registerBirthdayDate = async (userId: string | undefined, text: string | null) => {
+const registerBirthdayDate = async (userId: string | undefined, name: string | undefined, text: string | undefined) => {
 	if (!text) {
-		throw new Error("dateが未入力です");
+		throw new Error("名前が未入力です");
 	}
-	const regEx = /^((19|20)\d{2}\/)?(0[1-9]|[1-9]|1[0-2]|)\/(0[1-9]|[1-9]|[1-2]\d{1}|3[0-1])$/g;
-	if (!text.match(regEx)) {
-		throw new Error("入力形式が違います");
+	if (!userId) {
+		throw new Error("userIdがありません");
 	}
+	if (!name) {
+		throw new Error("Nameがありません");
+	}
+	// const regEx = /^((19|20)\d{2}\/)?(0[1-9]|[1-9]|1[0-2]|)\/(0[1-9]|[1-9]|[1-2]\d{1}|3[0-1])$/g;
+	// if (!text.match(regEx)) {
+	// 	throw new Error("入力形式が違います");
+	// }
 	const splittedDate = text.split("/");
 	const [year, month, date] =
 		splittedDate.length === 3 ? [splittedDate[0], splittedDate[1], splittedDate[2]] : [null, splittedDate[0], splittedDate[1]];
-	const findBirthdayQuery = `
-		SELECT id FROM birthdays WHERE user_account_id = ? ORDER BY created_at DESC LIMIT 1 FOR UPDATE;
-		`;
-	const connect = await mysql.createConnection(dbConfig);
-	const [id] = await connect.query<UserStatusData[]>(findBirthdayQuery, [userId]);
 
+	const connect = await mysql.createConnection(dbConfig);
 	const inputBirthdayQuery = `
-		UPDATE birthdays SET year = ?, month = ?, date = ? WHERE id = ?;
+		INSERT INTO chronos.birthdays (user_account_id, name, year, month, date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, Now(), Now());
 	`;
-	const [result] = await connect.execute<UserStatusData[]>(inputBirthdayQuery, [year, month, date, userId]);
+	await connect.execute(inputBirthdayQuery, [userId, name, year, month, date]);
+	await connect.end();
 };
 
 const buildBirthday = (birthdays: BirthdayInfomation[]) => {
