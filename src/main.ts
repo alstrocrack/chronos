@@ -227,9 +227,9 @@ const buildBirthday = (birthdays: BirthdayInfomation[]) => {
 		const year = `${curr.year}年`;
 		const currentTime = new Date();
 		let age: number = currentTime.getFullYear() - curr.year;
-		if (curr.month > currentTime.getMonth()) {
+		if (curr.month > currentTime.getMonth() + 1) {
 			age--;
-		} else if (curr.month == currentTime.getMonth()) {
+		} else if (curr.month == currentTime.getMonth() + 1) {
 			if (curr.date > currentTime.getDate()) {
 				age--;
 			}
