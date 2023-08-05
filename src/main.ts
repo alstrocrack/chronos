@@ -205,14 +205,12 @@ const registerBirthdayDate = async (userId: string | undefined, name: string | u
 	if (!name) {
 		throw new Error("Nameがありません");
 	}
-	// const regEx = /^((19|20)\d{2}\/)?(0[1-9]|[1-9]|1[0-2]|)\/(0[1-9]|[1-9]|[1-2]\d{1}|3[0-1])$/g;
-	// if (!text.match(regEx)) {
-	// 	throw new Error("入力形式が違います");
-	// }
-	const splittedDate = text.split("/");
-	const [year, month, date] =
-		splittedDate.length === 3 ? [splittedDate[0], splittedDate[1], splittedDate[2]] : [null, splittedDate[0], splittedDate[1]];
-
+	const regEx = /^(19\d{2}|20\d{2})?\/?(0[1-9]|1\d|2\d|[1-9])\/(0[1-9]|1\d|2\d|3[01]|[1-9])$/;
+	const result = text.match(regEx);
+	if (!result) {
+		throw new Error("入力形式が違います");
+	}
+	const [year, month, date] = [result[1] ? result[1] : null, result[2], result[3]];
 	const connect = await mysql.createConnection(dbConfig);
 	const inputBirthdayQuery = `
 		INSERT INTO chronos.birthdays (user_account_id, name, year, month, date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, Now(), Now());
@@ -229,9 +227,9 @@ const buildBirthday = (birthdays: BirthdayInfomation[]) => {
 		const year = `${curr.year}年`;
 		const currentTime = new Date();
 		let age: number = currentTime.getFullYear() - curr.year;
-		if (curr.month > currentTime.getMonth()) {
+		if (curr.month > currentTime.getMonth() + 1) {
 			age--;
-		} else if (curr.month == currentTime.getMonth()) {
+		} else if (curr.month == currentTime.getMonth() + 1) {
 			if (curr.date > currentTime.getDate()) {
 				age--;
 			}
