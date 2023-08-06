@@ -121,6 +121,10 @@ const replyEvent = async (event: MessageEvent) => {
 		if (userStatus) {
 			switch (Number(userStatus)) {
 				case CHRONOS_USER_STATUS.addName:
+					const isInvlidName = await hasMultipleName(userId, text);
+					if (isInvlidName) {
+						throw new Error("同じ名前が登録されています");
+					}
 					await redisClient.hSet(userId, "status", CHRONOS_USER_STATUS.addDate);
 					await redisClient.hSet(userId, "name", text);
 					await reply("誕生日を登録する人の誕生日を入力してください", replyToken);
@@ -132,6 +136,7 @@ const replyEvent = async (event: MessageEvent) => {
 					await reply("新しい誕生日を登録しました", replyToken);
 					break;
 				case CHRONOS_USER_STATUS.delete:
+					await deleteBirthday(userId, text);
 					await reply("削除しました", replyToken);
 					await redisClient.del(userId);
 					break;
@@ -195,6 +200,16 @@ const getUsersBirthdays = async (userId: string) => {
 	return buildBirthday(birthdayInfomation);
 };
 
+const hasMultipleName = async (userId: string, text: string) => {
+	const researchMultipleNameQuery = `
+		SELECT * FROM birthdays WHERE user_account_id = ? AND name = ? LIMIT 1;
+	`;
+	const connect = await mysql.createConnection(dbConfig);
+	const [multipleName] = await connect.query<any[]>(researchMultipleNameQuery, [userId, text]);
+	await connect.end();
+	return !!multipleName.length;
+};
+
 const registerBirthdayDate = async (userId: string | undefined, name: string | undefined, text: string | undefined) => {
 	if (!text) {
 		throw new Error("名前が未入力です");
@@ -237,6 +252,16 @@ const buildBirthday = (birthdays: BirthdayInfomation[]) => {
 		return (accu += `${curr.name}: ${year}${curr.month}月${curr.date}日 (${age}歳)\n`);
 	}, "誕生日の一覧\n");
 	return list.replace(/\n$/, "");
+};
+
+const deleteBirthday = async (userId: string, text: string) => {
+	const deleteBirthdayQuery = `
+		DELETE FROM chronos.birthdays WHERE user_account_id = ? AND name = ?;
+	`;
+	const connect = await mysql.createConnection(dbConfig);
+	const [result] = await connect.execute<ResultSetHeader>(deleteBirthdayQuery, [userId, text]);
+	await connect.end();
+	return !!result.affectedRows;
 };
 
 // general
