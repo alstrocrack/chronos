@@ -3,6 +3,7 @@ import { WebhookRequestBody, FollowEvent, Message, MessageEvent, ClientConfig, W
 import mysql from "mysql2/promise";
 import { ConnectionOptions, ResultSetHeader } from "mysql2";
 import { createClient, RedisClientType } from "redis";
+import crypto from "crypto";
 
 import { BirthdayInfomation } from "./type";
 
@@ -47,7 +48,14 @@ const REDIS_KEY = {
 };
 
 // handler
-export const handler = async (event: WebhookRequestBody) => {
+export const handler = async (event: any) => {
+	const [channelSecret, body] = [process.env.CHANNEL_ACCESS_TOKEN!, JSON.stringify(event)];
+	const digest: string = crypto.createHmac("SHA256", channelSecret).update(body).digest("base64");
+	const signature: string = event.headers["x-line-signature"];
+	if (digest != signature) {
+		throw new Error("The signature is different, so you may have been sent an invalid reques");
+	}
+
 	const events: Array<WebhookEvent> = event.events;
 
 	await Promise.all(
