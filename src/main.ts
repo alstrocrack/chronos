@@ -41,8 +41,13 @@ const CHRONOS_USER_STATUS = {
 	delete: 3,
 };
 
+const redisKey = {
+	STATUS: "status",
+	NAME: "name",
+};
+
 // handler
-export const handler = async (event: WebhookRequestBody, callback: any) => {
+export const handler = async (event: WebhookRequestBody) => {
 	const events: Array<WebhookEvent> = event.events;
 
 	const eventsResult: boolean[] = await Promise.all(
@@ -54,7 +59,7 @@ export const handler = async (event: WebhookRequestBody, callback: any) => {
 	if (eventsResult.includes(false)) {
 		throw new Error("invalid request");
 	}
-	console.log("success");
+	console.info("success");
 };
 
 const handleEachEvent = async (event: WebhookEvent) => {
@@ -93,6 +98,7 @@ const followEvent = async (event: FollowEvent) => {
 
 const replyEvent = async (event: MessageEvent) => {
 	let isSuccess: boolean = true;
+
 	const userId = event.source.userId;
 	if (!userId) {
 		console.error("ERROR: userId not found");
@@ -106,7 +112,7 @@ const replyEvent = async (event: MessageEvent) => {
 	}
 
 	if (event.message.type != "text") {
-		// Don't process anymore
+		await reply("テキストで入力してください", replyToken);
 		return true;
 	}
 	const text = event.message.text;
@@ -114,10 +120,9 @@ const replyEvent = async (event: MessageEvent) => {
 	const redisClient: RedisClientType = createClient(redisConfig);
 	await redisClient.connect();
 
-	const userStatus = await redisClient.hGet(userId, "status");
+	const userStatus = await redisClient.hGet(userId, redisKey.STATUS);
 
 	try {
-		// NOTE: statusがあれば登録か削除の最中
 		if (userStatus) {
 			switch (Number(userStatus)) {
 				case CHRONOS_USER_STATUS.addName:
@@ -125,12 +130,12 @@ const replyEvent = async (event: MessageEvent) => {
 					if (isInvlidName) {
 						throw new Error("同じ名前が登録されています");
 					}
-					await redisClient.hSet(userId, "status", CHRONOS_USER_STATUS.addDate);
-					await redisClient.hSet(userId, "name", text);
+					await redisClient.hSet(userId, redisKey.STATUS, CHRONOS_USER_STATUS.addDate);
+					await redisClient.hSet(userId, redisKey.NAME, text);
 					await reply("誕生日を登録する人の誕生日を入力してください", replyToken);
 					break;
 				case CHRONOS_USER_STATUS.addDate:
-					const name = await redisClient.hGet(userId, "name");
+					const name = await redisClient.hGet(userId, redisKey.NAME);
 					await redisClient.del(userId);
 					await registerBirthdayDate(userId, name, text);
 					await reply("新しい誕生日を登録しました", replyToken);
@@ -147,7 +152,7 @@ const replyEvent = async (event: MessageEvent) => {
 		} else {
 			switch (text) {
 				case CHRONOS_EVENT_TYPE.adding:
-					redisClient.hSet(userId, "status", CHRONOS_USER_STATUS.addName);
+					redisClient.hSet(userId, redisKey.STATUS, CHRONOS_USER_STATUS.addName);
 					await reply("誕生日を登録する人の名前を入力してください", replyToken);
 					break;
 				case CHRONOS_EVENT_TYPE.listing:
@@ -155,7 +160,7 @@ const replyEvent = async (event: MessageEvent) => {
 					await reply(birthdays, replyToken);
 					break;
 				case CHRONOS_EVENT_TYPE.delete:
-					redisClient.hSet(userId, "status", CHRONOS_USER_STATUS.delete);
+					redisClient.hSet(userId, redisKey.STATUS, CHRONOS_USER_STATUS.delete);
 					await reply("誕生日を削除する人の名前を入力してください", replyToken);
 					break;
 				case CHRONOS_EVENT_TYPE.cancel:
@@ -179,7 +184,7 @@ const replyEvent = async (event: MessageEvent) => {
 	return isSuccess;
 };
 
-// DB connetion
+// Each Process
 const registerNewUser = async (userId: string) => {
 	const userInsertQuery = `
 		INSERT INTO user_accounts (id, created_at, updated_at) VALUES (?, Now(), Now());
@@ -273,3 +278,12 @@ const reply = async (text: string, replyToken: string) => {
 	};
 	return await client.replyMessage(replyToken, message);
 };
+
+class ReplyError extends Error {
+	static {
+		this.prototype.name = "ReplyError";
+	}
+	constructor(e?: string) {
+		super(e);
+	}
+}
