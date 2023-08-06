@@ -130,8 +130,8 @@ const replyEvent = async (event: MessageEvent) => {
 					await reply("新しい誕生日を登録しました", replyToken);
 					break;
 				case CHRONOS_USER_STATUS.delete:
-					await deleteBirthday(userId, text);
-					await reply("削除しました", replyToken);
+					const hasDeleted = await deleteBirthday(userId, text);
+					await reply(hasDeleted ? `${text}さんを削除しました` : `${text}さんは登録されていないようです`, replyToken);
 					await redisClient.del(userId);
 					break;
 				default:
@@ -207,18 +207,18 @@ const hasMultipleName = async (userId: string, text: string) => {
 
 const registerBirthdayDate = async (userId: string | undefined, name: string | undefined, text: string | undefined) => {
 	if (!text) {
-		throw new ReplyError("名前を正しく登録してください");
+		throw new ReplyError("登録したい人の名前を正しく入力してください");
 	}
 	if (!userId) {
-		throw new Error("userIdがありません");
+		throw new Error("userId not found");
 	}
 	if (!name) {
-		throw new Error("Nameがありません");
+		throw new Error("Name not found");
 	}
 	const regEx = /^(19\d{2}|20\d{2})?\/?(0[1-9]|1\d|2\d|[1-9])\/(0[1-9]|1\d|2\d|3[01]|[1-9])$/;
 	const result = text.match(regEx);
 	if (!result) {
-		throw new Error("入力形式が違います");
+		throw new ReplyError("誕生日の入力は 1996/12/20 の形式で入力してください\nまた 12/20の形式でも問題ありません");
 	}
 	const [year, month, date] = [result[1] ? result[1] : null, result[2], result[3]];
 	const connect = await mysql.createConnection(dbConfig);
