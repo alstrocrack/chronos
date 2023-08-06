@@ -136,6 +136,7 @@ const replyEvent = async (event: MessageEvent) => {
 					await reply("新しい誕生日を登録しました", replyToken);
 					break;
 				case CHRONOS_USER_STATUS.delete:
+					await deleteBirthday(userId, text);
 					await reply("削除しました", replyToken);
 					await redisClient.del(userId);
 					break;
@@ -205,6 +206,7 @@ const hasMultipleName = async (userId: string, text: string) => {
 	`;
 	const connect = await mysql.createConnection(dbConfig);
 	const [multipleName] = await connect.query<any[]>(researchMultipleNameQuery, [userId, text]);
+	await connect.end();
 	return !!multipleName.length;
 };
 
@@ -250,6 +252,16 @@ const buildBirthday = (birthdays: BirthdayInfomation[]) => {
 		return (accu += `${curr.name}: ${year}${curr.month}月${curr.date}日 (${age}歳)\n`);
 	}, "誕生日の一覧\n");
 	return list.replace(/\n$/, "");
+};
+
+const deleteBirthday = async (userId: string, text: string) => {
+	const deleteBirthdayQuery = `
+		DELETE FROM chronos.birthdays WHERE user_account_id = ? AND name = ?;
+	`;
+	const connect = await mysql.createConnection(dbConfig);
+	const [result] = await connect.execute<ResultSetHeader>(deleteBirthdayQuery, [userId, text]);
+	await connect.end();
+	return !!result.affectedRows;
 };
 
 // general
