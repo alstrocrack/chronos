@@ -83,7 +83,6 @@ const followEvent = async (event: FollowEvent) => {
 };
 
 const replyEvent = async (event: MessageEvent) => {
-	let isSuccess: boolean = true;
 	const replyToken = event.replyToken;
 	const userId = event.source.userId;
 
@@ -125,8 +124,8 @@ const replyEvent = async (event: MessageEvent) => {
 					break;
 				case CHRONOS_USER_STATUS.addDate:
 					const name = await redisClient.hGet(userId, redisKey.NAME);
-					await redisClient.del(userId);
 					await registerBirthdayDate(userId, name, text);
+					await redisClient.del(userId);
 					await reply("新しい誕生日を登録しました", replyToken);
 					break;
 				case CHRONOS_USER_STATUS.delete:
@@ -170,8 +169,6 @@ const replyEvent = async (event: MessageEvent) => {
 	}
 
 	await redisClient.disconnect();
-
-	return isSuccess;
 };
 
 // Each Process
