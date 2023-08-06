@@ -107,6 +107,12 @@ const replyEvent = async (event: MessageEvent) => {
 
 	try {
 		if (userStatus) {
+			if (text === CHRONOS_EVENT_TYPE.cancel) {
+				await redisClient.del(userId);
+				await reply("キャンセルしました", replyToken);
+				return;
+			}
+
 			switch (Number(userStatus)) {
 				case CHRONOS_USER_STATUS.addName:
 					const isInvlidName = await hasMultipleName(userId, text);
@@ -146,12 +152,8 @@ const replyEvent = async (event: MessageEvent) => {
 					redisClient.hSet(userId, redisKey.STATUS, CHRONOS_USER_STATUS.delete);
 					await reply("誕生日を削除する人の名前を入力してください", replyToken);
 					break;
-				case CHRONOS_EVENT_TYPE.cancel:
-					await redisClient.del(userId);
-					await reply("キャンセルしました", replyToken);
-					break;
 				default:
-					reply("「誕生日の追加」、「誕生日の一覧」、「誕生日の削除」、「キャンセル」のいずれかを入力してください", replyToken);
+					reply("「誕生日の追加」、「誕生日の一覧」、「誕生日の削除」のいずれかを入力してください", replyToken);
 			}
 		}
 	} catch (error) {
