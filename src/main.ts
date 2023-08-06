@@ -50,71 +50,54 @@ const redisKey = {
 export const handler = async (event: WebhookRequestBody) => {
 	const events: Array<WebhookEvent> = event.events;
 
-	const eventsResult: boolean[] = await Promise.all(
+	await Promise.all(
 		events.map(async (event) => {
 			return await handleEachEvent(event);
 		}),
 	);
 
-	if (eventsResult.includes(false)) {
-		throw new Error("invalid request");
-	}
-	console.info("success");
+	console.info("Events Processed");
 };
 
+// 業務エラーはリプライで返して、システムエラーは例外を投げて処理を止める
 const handleEachEvent = async (event: WebhookEvent) => {
-	let eventResult: boolean = true;
-
 	if (event.type == "follow") {
-		eventResult = await followEvent(event);
+		await followEvent(event);
 	} else if (event.type == "message") {
-		eventResult = await replyEvent(event);
+		await replyEvent(event);
 	} else {
-		console.error("ERROR: eventType not specified");
-		eventResult = false;
+		throw new Error("Event type not specified");
 	}
-
-	return eventResult;
 };
 
 const followEvent = async (event: FollowEvent) => {
-	let isSuccess: boolean = true;
 	const userId = event.source.userId;
 	if (!userId) {
-		console.error("ERROR: userId not found");
-		return false;
+		throw new Error("Not found follow user userId");
 	}
 
 	await registerNewUser(userId).catch((res) => {
 		console.error(`ERROR: ${res}`);
-		isSuccess = false;
 	});
-	await reply("Birthday Reminderを登録ありがとうございます！", event.replyToken).catch((res) => {
-		console.error(`ERROR: ${res}`);
-		isSuccess = false;
-	});
-	return isSuccess;
+	await reply("Birthday Reminderを登録ありがとうございます！", event.replyToken);
 };
 
 const replyEvent = async (event: MessageEvent) => {
 	let isSuccess: boolean = true;
-
-	const userId = event.source.userId;
-	if (!userId) {
-		console.error("ERROR: userId not found");
-		return false;
-	}
-
 	const replyToken = event.replyToken;
+	const userId = event.source.userId;
+
 	if (!replyToken) {
-		console.error("ERROR: replyToken not found");
-		return false;
+		throw new Error("replyToken not found");
+	}
+	if (!userId) {
+		throw new Error("userId not found");
+	}
+	if (event.message.type != "text") {
+		await reply("テキストで入力するか、メニューから操作を選択してください", replyToken);
+		return;
 	}
 
-	if (event.message.type != "text") {
-		await reply("テキストで入力してください", replyToken);
-		return true;
-	}
 	const text = event.message.text;
 
 	const redisClient: RedisClientType = createClient(redisConfig);
@@ -128,7 +111,7 @@ const replyEvent = async (event: MessageEvent) => {
 				case CHRONOS_USER_STATUS.addName:
 					const isInvlidName = await hasMultipleName(userId, text);
 					if (isInvlidName) {
-						throw new Error("同じ名前が登録されています");
+						throw new ReplyError("同じ名前が登録されています、別の名前を入力してください");
 					}
 					await redisClient.hSet(userId, redisKey.STATUS, CHRONOS_USER_STATUS.addDate);
 					await redisClient.hSet(userId, redisKey.NAME, text);
@@ -166,14 +149,19 @@ const replyEvent = async (event: MessageEvent) => {
 				case CHRONOS_EVENT_TYPE.cancel:
 					await redisClient.del(userId);
 					await reply("キャンセルしました", replyToken);
+					break;
 				default:
-					console.error("ERROR: invalid chronosEventType");
-					throw new Error("invalid Chronos Event Type");
+					reply("「誕生日の追加」、「誕生日の一覧」、「誕生日の削除」、「キャンセル」のいずれかを入力してください", replyToken);
 			}
 		}
 	} catch (error) {
-		if (error instanceof Error) {
-			isSuccess = false;
+		if (error instanceof ReplyError) {
+			await reply(error.message, replyToken);
+			console.error(`ERROR: ${error}`);
+			console.error(`BACKTRACE: ${error.stack}`);
+		} else if (error instanceof Error) {
+			await redisClient.del(userId);
+			await reply("予期しないエラーが発生しました、最初から操作をやり直してください", replyToken);
 			console.error(`ERROR: ${error}`);
 			console.error(`BACKTRACE: ${error.stack}`);
 		}
@@ -217,7 +205,7 @@ const hasMultipleName = async (userId: string, text: string) => {
 
 const registerBirthdayDate = async (userId: string | undefined, name: string | undefined, text: string | undefined) => {
 	if (!text) {
-		throw new Error("名前が未入力です");
+		throw new ReplyError("名前を正しく登録してください");
 	}
 	if (!userId) {
 		throw new Error("userIdがありません");
