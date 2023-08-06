@@ -41,103 +41,96 @@ const CHRONOS_USER_STATUS = {
 	delete: 3,
 };
 
+const redisKey = {
+	STATUS: "status",
+	NAME: "name",
+};
+
 // handler
-export const handler = async (event: WebhookRequestBody, callback: any) => {
+export const handler = async (event: WebhookRequestBody) => {
 	const events: Array<WebhookEvent> = event.events;
 
-	const eventsResult: boolean[] = await Promise.all(
+	await Promise.all(
 		events.map(async (event) => {
 			return await handleEachEvent(event);
 		}),
 	);
 
-	if (eventsResult.includes(false)) {
-		throw new Error("invalid request");
-	}
-	console.log("success");
+	console.info("Events Processed");
 };
 
+// 業務エラーはリプライで返して、システムエラーは例外を投げて処理を止める
 const handleEachEvent = async (event: WebhookEvent) => {
-	let eventResult: boolean = true;
-
 	if (event.type == "follow") {
-		eventResult = await followEvent(event);
+		await followEvent(event);
 	} else if (event.type == "message") {
-		eventResult = await replyEvent(event);
+		await replyEvent(event);
 	} else {
-		console.error("ERROR: eventType not specified");
-		eventResult = false;
+		throw new Error("Event type not specified");
 	}
-
-	return eventResult;
 };
 
 const followEvent = async (event: FollowEvent) => {
-	let isSuccess: boolean = true;
 	const userId = event.source.userId;
 	if (!userId) {
-		console.error("ERROR: userId not found");
-		return false;
+		throw new Error("Not found follow user userId");
 	}
 
 	await registerNewUser(userId).catch((res) => {
 		console.error(`ERROR: ${res}`);
-		isSuccess = false;
 	});
-	await reply("Birthday Reminderを登録ありがとうございます！", event.replyToken).catch((res) => {
-		console.error(`ERROR: ${res}`);
-		isSuccess = false;
-	});
-	return isSuccess;
+	await reply("Birthday Reminderを登録ありがとうございます！", event.replyToken);
 };
 
 const replyEvent = async (event: MessageEvent) => {
-	let isSuccess: boolean = true;
-	const userId = event.source.userId;
-	if (!userId) {
-		console.error("ERROR: userId not found");
-		return false;
-	}
-
 	const replyToken = event.replyToken;
+	const userId = event.source.userId;
+
 	if (!replyToken) {
-		console.error("ERROR: replyToken not found");
-		return false;
+		throw new Error("replyToken not found");
+	}
+	if (!userId) {
+		throw new Error("userId not found");
+	}
+	if (event.message.type != "text") {
+		await reply("テキストで入力するか、メニューから操作を選択してください", replyToken);
+		return;
 	}
 
-	if (event.message.type != "text") {
-		// Don't process anymore
-		return true;
-	}
 	const text = event.message.text;
 
 	const redisClient: RedisClientType = createClient(redisConfig);
 	await redisClient.connect();
 
-	const userStatus = await redisClient.hGet(userId, "status");
+	const userStatus = await redisClient.hGet(userId, redisKey.STATUS);
 
 	try {
-		// NOTE: statusがあれば登録か削除の最中
 		if (userStatus) {
+			if (text === CHRONOS_EVENT_TYPE.cancel) {
+				await redisClient.del(userId);
+				await reply("キャンセルしました", replyToken);
+				return;
+			}
+
 			switch (Number(userStatus)) {
 				case CHRONOS_USER_STATUS.addName:
 					const isInvlidName = await hasMultipleName(userId, text);
 					if (isInvlidName) {
-						throw new Error("同じ名前が登録されています");
+						throw new ReplyError("同じ名前が登録されています、別の名前を入力してください");
 					}
-					await redisClient.hSet(userId, "status", CHRONOS_USER_STATUS.addDate);
-					await redisClient.hSet(userId, "name", text);
+					await redisClient.hSet(userId, redisKey.STATUS, CHRONOS_USER_STATUS.addDate);
+					await redisClient.hSet(userId, redisKey.NAME, text);
 					await reply("誕生日を登録する人の誕生日を入力してください", replyToken);
 					break;
 				case CHRONOS_USER_STATUS.addDate:
-					const name = await redisClient.hGet(userId, "name");
-					await redisClient.del(userId);
+					const name = await redisClient.hGet(userId, redisKey.NAME);
 					await registerBirthdayDate(userId, name, text);
+					await redisClient.del(userId);
 					await reply("新しい誕生日を登録しました", replyToken);
 					break;
 				case CHRONOS_USER_STATUS.delete:
-					await deleteBirthday(userId, text);
-					await reply("削除しました", replyToken);
+					const hasDeleted = await deleteBirthday(userId, text);
+					await reply(hasDeleted ? `${text}さんを削除しました` : `${text}さんは登録されていないようです`, replyToken);
 					await redisClient.del(userId);
 					break;
 				default:
@@ -147,7 +140,7 @@ const replyEvent = async (event: MessageEvent) => {
 		} else {
 			switch (text) {
 				case CHRONOS_EVENT_TYPE.adding:
-					redisClient.hSet(userId, "status", CHRONOS_USER_STATUS.addName);
+					redisClient.hSet(userId, redisKey.STATUS, CHRONOS_USER_STATUS.addName);
 					await reply("誕生日を登録する人の名前を入力してください", replyToken);
 					break;
 				case CHRONOS_EVENT_TYPE.listing:
@@ -155,31 +148,30 @@ const replyEvent = async (event: MessageEvent) => {
 					await reply(birthdays, replyToken);
 					break;
 				case CHRONOS_EVENT_TYPE.delete:
-					redisClient.hSet(userId, "status", CHRONOS_USER_STATUS.delete);
+					redisClient.hSet(userId, redisKey.STATUS, CHRONOS_USER_STATUS.delete);
 					await reply("誕生日を削除する人の名前を入力してください", replyToken);
 					break;
-				case CHRONOS_EVENT_TYPE.cancel:
-					await redisClient.del(userId);
-					await reply("キャンセルしました", replyToken);
 				default:
-					console.error("ERROR: invalid chronosEventType");
-					throw new Error("invalid Chronos Event Type");
+					reply("「誕生日の追加」、「誕生日の一覧」、「誕生日の削除」のいずれかを入力してください", replyToken);
 			}
 		}
 	} catch (error) {
-		if (error instanceof Error) {
-			isSuccess = false;
+		if (error instanceof ReplyError) {
+			await reply(error.message, replyToken);
+			console.error(`ERROR: ${error}`);
+			console.error(`BACKTRACE: ${error.stack}`);
+		} else if (error instanceof Error) {
+			await redisClient.del(userId);
+			await reply("予期しないエラーが発生しました、最初から操作をやり直してください", replyToken);
 			console.error(`ERROR: ${error}`);
 			console.error(`BACKTRACE: ${error.stack}`);
 		}
 	}
 
 	await redisClient.disconnect();
-
-	return isSuccess;
 };
 
-// DB connetion
+// Each Process
 const registerNewUser = async (userId: string) => {
 	const userInsertQuery = `
 		INSERT INTO user_accounts (id, created_at, updated_at) VALUES (?, Now(), Now());
@@ -212,18 +204,18 @@ const hasMultipleName = async (userId: string, text: string) => {
 
 const registerBirthdayDate = async (userId: string | undefined, name: string | undefined, text: string | undefined) => {
 	if (!text) {
-		throw new Error("名前が未入力です");
+		throw new ReplyError("登録したい人の名前を正しく入力してください");
 	}
 	if (!userId) {
-		throw new Error("userIdがありません");
+		throw new Error("userId not found");
 	}
 	if (!name) {
-		throw new Error("Nameがありません");
+		throw new Error("Name not found");
 	}
 	const regEx = /^(19\d{2}|20\d{2})?\/?(0[1-9]|1\d|2\d|[1-9])\/(0[1-9]|1\d|2\d|3[01]|[1-9])$/;
 	const result = text.match(regEx);
 	if (!result) {
-		throw new Error("入力形式が違います");
+		throw new ReplyError("誕生日の入力は 1996/12/20 の形式で入力してください\nまた 12/20の形式でも問題ありません");
 	}
 	const [year, month, date] = [result[1] ? result[1] : null, result[2], result[3]];
 	const connect = await mysql.createConnection(dbConfig);
@@ -273,3 +265,12 @@ const reply = async (text: string, replyToken: string) => {
 	};
 	return await client.replyMessage(replyToken, message);
 };
+
+class ReplyError extends Error {
+	static {
+		this.prototype.name = "ReplyError";
+	}
+	constructor(e?: string) {
+		super(e);
+	}
+}
