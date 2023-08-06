@@ -121,6 +121,10 @@ const replyEvent = async (event: MessageEvent) => {
 		if (userStatus) {
 			switch (Number(userStatus)) {
 				case CHRONOS_USER_STATUS.addName:
+					const isInvlidName = await hasMultipleName(userId, text);
+					if (isInvlidName) {
+						throw new Error("同じ名前が登録されています");
+					}
 					await redisClient.hSet(userId, "status", CHRONOS_USER_STATUS.addDate);
 					await redisClient.hSet(userId, "name", text);
 					await reply("誕生日を登録する人の誕生日を入力してください", replyToken);
@@ -193,6 +197,15 @@ const getUsersBirthdays = async (userId: string) => {
 	const [birthdayInfomation] = await connect.query<BirthdayInfomation[]>(userBirthdaysQuery, [userId]);
 	await connect.end();
 	return buildBirthday(birthdayInfomation);
+};
+
+const hasMultipleName = async (userId: string, text: string) => {
+	const researchMultipleNameQuery = `
+		SELECT * FROM birthdays WHERE user_account_id = ? AND name = ? LIMIT 1;
+	`;
+	const connect = await mysql.createConnection(dbConfig);
+	const [multipleName] = await connect.query<any[]>(researchMultipleNameQuery, [userId, text]);
+	return !!multipleName.length;
 };
 
 const registerBirthdayDate = async (userId: string | undefined, name: string | undefined, text: string | undefined) => {
