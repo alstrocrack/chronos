@@ -41,9 +41,9 @@ const CHRONOS_USER_STATUS = {
 	delete: 3,
 };
 
-const redisKey = {
-	STATUS: "status",
-	NAME: "name",
+const REDIS_KEY = {
+	status: "status",
+	name: "name",
 };
 
 // handler
@@ -102,7 +102,7 @@ const replyEvent = async (event: MessageEvent) => {
 	const redisClient: RedisClientType = createClient(redisConfig);
 	await redisClient.connect();
 
-	const userStatus = await redisClient.hGet(userId, redisKey.STATUS);
+	const userStatus = await redisClient.hGet(userId, REDIS_KEY.status);
 
 	try {
 		if (userStatus) {
@@ -118,12 +118,12 @@ const replyEvent = async (event: MessageEvent) => {
 					if (isInvlidName) {
 						throw new ReplyError("同じ名前が登録されています、別の名前を入力してください");
 					}
-					await redisClient.hSet(userId, redisKey.STATUS, CHRONOS_USER_STATUS.addDate);
-					await redisClient.hSet(userId, redisKey.NAME, text);
+					await redisClient.hSet(userId, REDIS_KEY.status, CHRONOS_USER_STATUS.addDate);
+					await redisClient.hSet(userId, REDIS_KEY.name, text);
 					await reply("誕生日を登録する人の誕生日を入力してください", replyToken);
 					break;
 				case CHRONOS_USER_STATUS.addDate:
-					const name = await redisClient.hGet(userId, redisKey.NAME);
+					const name = await redisClient.hGet(userId, REDIS_KEY.name);
 					await registerBirthdayDate(userId, name, text);
 					await redisClient.del(userId);
 					await reply("新しい誕生日を登録しました", replyToken);
@@ -140,7 +140,7 @@ const replyEvent = async (event: MessageEvent) => {
 		} else {
 			switch (text) {
 				case CHRONOS_EVENT_TYPE.adding:
-					redisClient.hSet(userId, redisKey.STATUS, CHRONOS_USER_STATUS.addName);
+					redisClient.hSet(userId, REDIS_KEY.status, CHRONOS_USER_STATUS.addName);
 					await reply("誕生日を登録する人の名前を入力してください", replyToken);
 					break;
 				case CHRONOS_EVENT_TYPE.listing:
@@ -148,7 +148,7 @@ const replyEvent = async (event: MessageEvent) => {
 					await reply(birthdays, replyToken);
 					break;
 				case CHRONOS_EVENT_TYPE.delete:
-					redisClient.hSet(userId, redisKey.STATUS, CHRONOS_USER_STATUS.delete);
+					redisClient.hSet(userId, REDIS_KEY.status, CHRONOS_USER_STATUS.delete);
 					await reply("誕生日を削除する人の名前を入力してください", replyToken);
 					break;
 				default:
