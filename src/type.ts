@@ -13,6 +13,14 @@ export interface BirthdayInfomation extends RowDataPacket {
 	date: number;
 }
 
+export interface Birthday extends RowDataPacket {
+	id: string;
+	name: string;
+	year: number | null;
+	month: number;
+	date: number;
+}
+
 export interface userCache {
 	id: string;
 	name: string | null;
