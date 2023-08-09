@@ -1,5 +1,5 @@
 import * as line from "@line/bot-sdk";
-import { FollowEvent, Message, MessageEvent, ClientConfig, WebhookEvent } from "@line/bot-sdk";
+import { FollowEvent, UnfollowEvent, Message, MessageEvent, ClientConfig, WebhookEvent } from "@line/bot-sdk";
 import mysql from "mysql2/promise";
 import { ConnectionOptions, ResultSetHeader } from "mysql2";
 import { createClient, RedisClientType } from "redis";
@@ -75,6 +75,8 @@ export const handler = async (event: LambdaEvent) => {
 const handleEachEvent = async (event: WebhookEvent) => {
 	if (event.type == "follow") {
 		await followEvent(event);
+	} else if (event.type == "unfollow") {
+		await unfollowEvent(event);
 	} else if (event.type == "message") {
 		await replyEvent(event);
 	} else {
@@ -88,10 +90,21 @@ const followEvent = async (event: FollowEvent) => {
 		throw new Error("Not found follow user userId");
 	}
 
-	await registerNewUser(userId).catch((res) => {
+	const result = await registerOrEnableUser(userId).catch((res) => {
 		console.error(`ERROR: ${res}`);
 	});
-	await reply("Birthday Reminderを登録ありがとうございます！", event.replyToken);
+	await reply(result ? "Birthday Reminderへおかえりなさい！" : "Birthday Reminderを登録ありがとうございます！", event.replyToken);
+};
+
+const unfollowEvent = async (event: UnfollowEvent) => {
+	const userId = event.source.userId;
+	if (!userId) {
+		throw new Error("Not found follow user userId");
+	}
+
+	await disableUser(userId).catch((res) => {
+		console.error(`ERROR: ${res}`);
+	});
 };
 
 const replyEvent = async (event: MessageEvent) => {
@@ -184,12 +197,30 @@ const replyEvent = async (event: MessageEvent) => {
 };
 
 // Each Process
-const registerNewUser = async (userId: string) => {
+const registerOrEnableUser = async (userId: string) => {
+	const userSearchQuery = `
+		SELECT * FROM user_accounts WHERE id = ? AND active = false LIMIT 1;
+	`;
 	const userInsertQuery = `
-		INSERT INTO user_accounts (id, created_at, updated_at) VALUES (?, Now(), Now());
+		INSERT INTO user_accounts (id, active, created_at, updated_at) VALUES (?, true, Now(), Now());
+	`;
+	const enableUserQuery = `
+		UPDATE user_accounts SET active = true, updated_at = Now() WHERE id = ? AND active = false;
 	`;
 	const connect = await mysql.createConnection(dbConfig);
-	await connect.execute<ResultSetHeader>(userInsertQuery, [userId]);
+	const [disabledUser] = await connect.query<any[]>(userSearchQuery, [userId]);
+	const isAlreadyRegisteredUser = !!disabledUser.length;
+	await connect.execute<ResultSetHeader>(isAlreadyRegisteredUser ? enableUserQuery : userInsertQuery, [userId]);
+	await connect.end();
+	return isAlreadyRegisteredUser;
+};
+
+const disableUser = async (userId: string) => {
+	const userDisableQuery = `
+		UPDATE user_accounts SET active = false, updated_at = Now() WHERE id = ? AND active = true;
+	`;
+	const connect = await mysql.createConnection(dbConfig);
+	await connect.execute<ResultSetHeader>(userDisableQuery, [userId]);
 	await connect.end();
 	return;
 };
@@ -232,7 +263,7 @@ const registerBirthdayDate = async (userId: string | undefined, name: string | u
 	const [year, month, date] = [result[1] ? result[1] : null, result[2], result[3]];
 	const connect = await mysql.createConnection(dbConfig);
 	const inputBirthdayQuery = `
-		INSERT INTO chronos.birthdays (user_account_id, name, year, month, date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, Now(), Now());
+		INSERT INTO birthdays (user_account_id, name, year, month, date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, Now(), Now());
 	`;
 	await connect.execute(inputBirthdayQuery, [userId, name, year, month, date]);
 	await connect.end();
@@ -260,7 +291,7 @@ const buildBirthday = (birthdays: BirthdayInfomation[]) => {
 
 const deleteBirthday = async (userId: string, text: string) => {
 	const deleteBirthdayQuery = `
-		DELETE FROM chronos.birthdays WHERE user_account_id = ? AND name = ?;
+		DELETE FROM birthdays WHERE user_account_id = ? AND name = ?;
 	`;
 	const connect = await mysql.createConnection(dbConfig);
 	const [result] = await connect.execute<ResultSetHeader>(deleteBirthdayQuery, [userId, text]);
