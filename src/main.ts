@@ -205,7 +205,7 @@ const registerOrEnableUser = async (userId: string) => {
 		INSERT INTO user_accounts (id, active, created_at, updated_at) VALUES (?, true, Now(), Now());
 	`;
 	const enableUserQuery = `
-		UPDATE user_accounts SET active = true WHERE id = ? AND active = false;
+		UPDATE user_accounts SET active = true, updated_at = Now() WHERE id = ? AND active = false;
 	`;
 	const connect = await mysql.createConnection(dbConfig);
 	const [disabledUser] = await connect.query<any[]>(userSearchQuery, [userId]);
@@ -217,7 +217,7 @@ const registerOrEnableUser = async (userId: string) => {
 
 const disableUser = async (userId: string) => {
 	const userDisableQuery = `
-		UPDATE user_accounts SET active = false WHERE id = ?;
+		UPDATE user_accounts SET active = false, updated_at = Now() WHERE id = ? AND active = true;
 	`;
 	const connect = await mysql.createConnection(dbConfig);
 	await connect.execute<ResultSetHeader>(userDisableQuery, [userId]);
