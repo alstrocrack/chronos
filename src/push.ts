@@ -3,7 +3,7 @@ import { Message, ClientConfig } from "@line/bot-sdk";
 import mysql from "mysql2/promise";
 import { ConnectionOptions } from "mysql2";
 
-import { Birthday } from "./type";
+import { BirthdayInfomation } from "./type";
 
 // Settings
 const lineConfig: ClientConfig = {
@@ -24,11 +24,12 @@ export const handler = async (event: any) => {
 	const currentTime = new Date();
 	const [month, date] = [currentTime.getMonth() + 1, currentTime.getDate()];
 	const birthdays = await fetchTodayBirthdays(month, date);
-	birthdays.forEach((birthday: Birthday) => {
+	birthdays.forEach(async (birthday: BirthdayInfomation) => {
 		const text = birthday.year
 			? `今日は${birthday.name}さんの${currentTime.getFullYear() - birthday.year}歳の誕生日です！`
 			: `今日は${birthday.name}さんの誕生日です！`;
-		push(birthday.id, text);
+		await push(birthday.id, text);
+		console.info(`TO: ${birthday.id}, NAME: ${birthday.name}`);
 	});
 	console.info(`${currentTime.getFullYear()}年${month}月${date}日 全通知の完了`);
 };
@@ -42,7 +43,7 @@ const fetchTodayBirthdays = async (month: number, date: number) => {
 		WHERE user_accounts.active = true AND birthdays.month = ? AND birthdays.date = ?;
 	`;
 	const connect = await mysql.createConnection(dbConfig);
-	const [birthdays] = await connect.query<Birthday[]>(SearchBirthdayQuery, [month, date]);
+	const [birthdays] = await connect.query<BirthdayInfomation[]>(SearchBirthdayQuery, [month, date]);
 	await connect.end();
 	return birthdays;
 };
