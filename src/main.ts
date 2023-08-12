@@ -260,6 +260,15 @@ const registerBirthdayDate = async (userId: string | undefined, name: string | u
 	if (!result) {
 		throw new ReplyError("誕生日の入力は 1996/12/20 の形式で入力してください\nまた 12/20の形式でも問題ありません");
 	}
+	if (result[1] && Number(result[1]) > new Date().getFullYear()) {
+		throw new ReplyError("不正な年の入力です、適切な年を入力してください");
+	}
+	if (Number(result[1]) == new Date().getFullYear() && Number(result[2]) > new Date().getMonth() + 1) {
+		throw new ReplyError("不正な月の入力です、適切な月を入力してください");
+	}
+	if (Number(result[1]) == new Date().getFullYear() && Number(result[2]) == new Date().getMonth() + 1 && Number(result[3]) > new Date().getDate()) {
+		throw new ReplyError("不正な日の入力です、適切な日を入力してください");
+	}
 	const [year, month, date] = [result[1] ? result[1] : null, result[2], result[3]];
 	const connect = await mysql.createConnection(dbConfig);
 	const inputBirthdayQuery = `
