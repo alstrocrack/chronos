@@ -20,17 +20,20 @@ const dbConfig: ConnectionOptions = {
 };
 
 // handler
-export const handler = async (event: any) => {
+export const handler = async () => {
 	const currentTime = new Date();
 	const [month, date] = [currentTime.getMonth() + 1, currentTime.getDate()];
 	const birthdays = await fetchTodayBirthdays(month, date);
-	birthdays.forEach(async (birthday: BirthdayInfomation) => {
-		const text = birthday.year
-			? `今日は${birthday.name}さんの${currentTime.getFullYear() - birthday.year}歳の誕生日です！`
-			: `今日は${birthday.name}さんの誕生日です！`;
-		await push(birthday.id, text);
-		console.info(`TO: ${birthday.id}, NAME: ${birthday.name}`);
-	});
+	await Promise.all(
+		birthdays.map(async (birthday: BirthdayInfomation) => {
+			const text = birthday.year
+				? `今日は${birthday.name}さんの${currentTime.getFullYear() - birthday.year}歳の誕生日です！`
+				: `今日は${birthday.name}さんの誕生日です！`;
+			await push(birthday.id, text);
+			console.info(`TO: ${birthday.id}, NAME: ${birthday.name}`);
+		}),
+	);
+
 	console.info(`${currentTime.getFullYear()}年${month}月${date}日 全通知の完了`);
 };
 
